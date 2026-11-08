@@ -5,6 +5,7 @@
 
 #include "external_provider.h"
 #include "../../upath.h"
+#include "../../tempfs.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -144,13 +145,14 @@ AiSuggestion ExternalProvider::analyze(const DiagnosticPacket& packet,
 	// Archivos temporales con permisos 0600: el paquete y la
 	// configuracion de curl con el header Authorization. La clave
 	// NUNCA va en la linea de comandos ni en los logs.
+	// Carpeta temporal unica (tempfs.h): se borra sola al salir,
+	// tambien en los return anticipados, con el curlrc (la clave) dentro.
 	std::error_code ec;
-	fs::path tmpdir = fs::temp_directory_path(ec) / "untrunc-ai-ext";
-	if (ec) {
+	tempfs::ScopedDir tmpdir("ai-ext");
+	if (!tmpdir.ok()) {
 		s.warning_es = "No se pudo crear el directorio temporal.";
 		return s;
 	}
-	fs::create_directories(tmpdir, ec);
 	fs::path packet_file = tmpdir / "packet.json";
 	fs::path curlrc = tmpdir / "curlrc";
 	fs::path resp_file = tmpdir / "response.json";

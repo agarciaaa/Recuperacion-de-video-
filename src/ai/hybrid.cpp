@@ -10,6 +10,8 @@
 
 #include "../common.h"
 #include "../diagnoser.h"
+#include "../tempfs.h"
+#include "../upath.h"
 #include "external/external_provider.h"
 #include "lmstudio/lmstudio_provider.h"
 #include "local/local_provider.h"
@@ -188,6 +190,10 @@ RescueOutcome rescueWithoutReference(const std::string& damaged_path,
 	out.repair = repairFileWithAutoRetry(synth.path, damaged_path, true);
 	g_ignore_unknown = saved_s;
 	g_use_chunk_stats = saved_dyn;
+	// La referencia sintetica ya no hace falta: se borra su carpeta
+	// temporal unica (antes quedaba en %TEMP%/untrunc-ai-ref para siempre).
+	tempfs::removeDir(upath::toPath(synth.path).parent_path());
+	out.synthetic_ref_path.clear();
 	out.ok = out.repair.ok;
 
 	std::ostringstream ss;

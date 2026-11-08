@@ -5,6 +5,7 @@
 
 #include "onnx_provider.h"
 #include "../../upath.h"
+#include "../../tempfs.h"
 
 #include <algorithm>
 #include <cmath>
@@ -352,9 +353,9 @@ int runTrainScript(const std::vector<std::string>& args, std::string& why_es,
 	// El archivo temporal se borra siempre al terminar; solo
 	// queda su contenido en memoria (g_last_train_script_output).
 	std::error_code ec;
-	fs::path tmpdir = fs::temp_directory_path(ec);
+	tempfs::ScopedDir tmpdir("train");  // unica; se borra al salir
 	fs::path out_file;
-	if (!ec) out_file = tmpdir / "untrunc-train-output.txt";
+	if (tmpdir.ok()) out_file = tmpdir / "salida.txt";
 	std::string cmd = shellQuote(python) + " " + shellQuote(script);
 	for (auto& a : args) cmd += " " + shellQuote(a);
 	if (!out_file.empty())

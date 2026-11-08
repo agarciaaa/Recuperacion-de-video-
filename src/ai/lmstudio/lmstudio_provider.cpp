@@ -7,6 +7,7 @@
 
 #include "lmstudio_provider.h"
 #include "../../upath.h"
+#include "../../tempfs.h"
 
 #include <algorithm>
 #include <cctype>
@@ -199,9 +200,8 @@ static bool curlGet(const std::string& url, int timeout_seconds,
 	body_out.clear();
 	http_code_out = 0;
 	std::error_code ec;
-	fs::path tmpdir = fs::temp_directory_path(ec) / "untrunc-ai-lmstudio";
-	if (ec) return false;
-	fs::create_directories(tmpdir, ec);
+	tempfs::ScopedDir tmpdir("ai-lmstudio");  // unica; se borra al salir
+	if (!tmpdir.ok()) return false;
 	fs::path resp_file = tmpdir / "get_response.json";
 	fs::path curlrc = tmpdir / "curlrc_get";
 	{
@@ -389,9 +389,8 @@ AiSuggestion LMStudioProvider::analyze(const DiagnosticPacket& packet,
 	// Archivos temporales 0600: cuerpo de la peticion y curlrc.
 	// La clave, si la hay, solo va en el header, nunca en argv/URL/logs.
 	std::error_code ec;
-	fs::path tmpdir = fs::temp_directory_path(ec) / "untrunc-ai-lmstudio";
-	if (ec) { s.warning_es = "No se pudo crear el directorio temporal."; return s; }
-	fs::create_directories(tmpdir, ec);
+	tempfs::ScopedDir tmpdir("ai-lmstudio");  // unica; se borra al salir
+	if (!tmpdir.ok()) { s.warning_es = "No se pudo crear el directorio temporal."; return s; }
 	fs::path body_file = tmpdir / "chat_body.json";
 	fs::path curlrc = tmpdir / "curlrc";
 	fs::path resp_file = tmpdir / "response.json";

@@ -18,6 +18,7 @@
 #include "diagnoser.h"
 #include "shell_util.h"
 #include "upath.h"
+#include "tempfs.h"
 
 namespace fs = std::filesystem;
 
@@ -151,8 +152,9 @@ bool probeCodecs(const std::string& path, std::string& video_codec,
 	video_codec.clear();
 	audio_codec.clear();
 	std::error_code ec;
-	fs::path tmp = fs::temp_directory_path(ec) / "untrunc-codecs.txt";
-	if (ec) return false;
+	tempfs::ScopedDir tmpdir("codecs");  // unica; se borra al salir
+	if (!tmpdir.ok()) return false;
+	fs::path tmp = tmpdir / "codecs.txt";
 	std::string cmd = "ffprobe -v error -show_entries stream=codec_type,codec_name "
 	                  "-of csv=p=0 " + shellQuote(path) + " > " + shellQuote(upath::fromPath(tmp)) + shell::discardStderr();
 	if (upath::system(cmd) != 0) return false;

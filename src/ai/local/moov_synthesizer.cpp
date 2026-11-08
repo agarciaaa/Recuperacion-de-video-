@@ -12,6 +12,7 @@
 #include "../../diagnoser.h"
 #include "../../shell_util.h"
 #include "../../upath.h"
+#include "../../tempfs.h"
 
 namespace fs = std::filesystem;
 
@@ -47,14 +48,12 @@ SyntheticRef buildSyntheticReference(int width, int height, int fps,
 		             "con MSYS2 (pacman -S mingw-w64-x86_64-ffmpeg) o usa una referencia sana.";
 		return r;
 	}
+	// Carpeta unica (tempfs.h). La referencia se usa DESPUES de esta
+	// funcion, asi que no se borra aqui: la borra quien la usa
+	// (rescueWithoutReference) con tempfs::removeDir(parent_path).
 	std::error_code ec;
-	fs::path tmpdir = fs::temp_directory_path(ec) / "untrunc-ai-ref";
-	if (ec) {
-		r.error_es = "No se pudo crear el directorio temporal para la referencia sintética.";
-		return r;
-	}
-	fs::create_directories(tmpdir, ec);
-	if (ec) {
+	fs::path tmpdir = tempfs::createUniqueDir("ai-ref", ec);
+	if (ec || tmpdir.empty()) {
 		r.error_es = "No se pudo crear el directorio temporal para la referencia sintética.";
 		return r;
 	}

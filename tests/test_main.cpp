@@ -26,6 +26,7 @@
 #include "../src/formatos.h"
 #include "../src/repair_job.h"
 #include "../src/shell_util.h"
+#include "../src/tempfs.h"
 #include "../src/upath.h"
 
 namespace fs = std::filesystem;
@@ -184,6 +185,36 @@ static void testHonestPercent() {
 	CHECK(attemptIsBetter(14900, 50.0, 33, 99.0));
 	CHECK(attemptIsBetter(1000, 60.0, 1000, 50.0));
 	CHECK(!attemptIsBetter(1000, 50.0, 1000, 50.0));
+}
+
+static void testTempDirs() {
+	fs::path kept;
+	{
+		tempfs::ScopedDir a("prueba");
+		tempfs::ScopedDir b("prueba");
+		CHECK(a.ok());
+		CHECK(b.ok());
+		// Dos operaciones a la vez nunca comparten carpeta.
+		CHECK(a.path() != b.path());
+		CHECK(fs::is_directory(a.path()));
+		std::ofstream(a / "x.txt") << "hola";
+		kept = a.path();
+	}
+	// Se borra al salir del ambito, con su contenido.
+	CHECK(!fs::exists(kept));
+
+	std::error_code ec;
+	fs::path d = tempfs::createUniqueDir("prueba", ec);
+	CHECK(!ec);
+	CHECK(fs::is_directory(d));
+	tempfs::removeDir(d);
+	CHECK(!fs::exists(d));
+
+	tempfs::ScopedDir r("prueba");
+	fs::path released = r.release();
+	CHECK(!r.ok());
+	CHECK(fs::is_directory(released));
+	tempfs::removeDir(released);
 }
 
 static void testPrettyBytes() {
@@ -406,6 +437,7 @@ int main() {
 	TempDir dir;
 	testShellQuote();
 	testFormatDuration();
+	testTempDirs();
 	testHonestPercent();
 	testPrettyBytes();
 	testReparadosPath();
