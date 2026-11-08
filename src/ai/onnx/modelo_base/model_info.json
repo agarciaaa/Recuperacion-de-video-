@@ -1,0 +1,23 @@
+{
+  "nombre": "untrunc_onnx_mlp",
+  "arquitectura": "MLP 264->64->32->4 (ReLU, Softmax)",
+  "parametros": 19172,
+  "ventana": 256,
+  "features": 264,
+  "clases": [
+    "basura",
+    "inicio_video",
+    "inicio_audio",
+    "inicio_sps"
+  ],
+  "tamano_bytes": 77069,
+  "onnx_exportado": true,
+  "onnx_error": "",
+  "cuantizado": "fp32 (sin cuantizar en el prototipo)",
+  "fecha": "2026-11-07T18:10:38",
+  "ejemplos": 4500,
+  "precision_validacion": 0.9844,
+  "precision_baseline": 0.7933,
+  "aceptado": true,
+  "motor": "numpy"
+}

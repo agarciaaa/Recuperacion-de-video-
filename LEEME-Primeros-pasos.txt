@@ -1,0 +1,141 @@
+Untrunc-mejorado — LEEME / Primeros pasos
+=============================================
+Repara vídeos MP4/MOV dañados o truncados (sin índice "moov").
+Fork mejorado de anthwlock/untrunc (a su vez fork de ponchio/untrunc).
+Licencia: GNU GPL-2.0 (ver COPYING). Gratis y de código abierto.
+
+¿QUÉ HAY EN ESTA CARPETA?
+-------------------------
+- untrunc-gui.exe  -> el programa con ventana (RECOMENDADO: haz doble clic aquí)
+- untrunc.exe      -> el mismo programa en línea de comandos (opcional)
+- AVCODEC-57.DLL, AVFORMAT-57.DLL, AVUTIL-55.DLL, ... -> librerías FFmpeg
+  que necesitan los dos .exe. NO las borres ni las muevas: deben estar
+  en la misma carpeta que los .exe.
+- profiles/profiles.json -> perfiles de cámaras (iPhone, Samsung, GoPro,
+  DJI, Sony, Canon, OBS y genéricos) para reparar sin referencia.
+- models/onnx_base/ -> modelo base pequeño (77 KB) del motor ONNX.
+- tools/train_onnx.py -> script para entrenar ese motor con tus vídeos.
+- README-ESPANOL.md -> guía en español. README.md -> documento original.
+- COPYING -> licencia GPL-2.0.
+
+CÓMO ABRIRLO (ASISTENTE EN 3 PASOS)
+------------------------------------
+1. Haz doble clic en untrunc-gui.exe.
+   Si Windows muestra un aviso azul, lee el apartado "AVISO DE
+   SMARTSCREEN" más abajo: es normal y no significa que el programa
+   tenga virus.
+2. Pestaña "Reparar":
+   Paso 1: elige el VÍDEO DAÑADO (el que no se abre).
+   Paso 2: elige el VÍDEO DE REFERENCIA (uno SANO, que se reproduzca
+   completo, grabado con el mismo celular o cámara, misma resolución).
+   Si no tienes referencia, marca "Intentar sin referencia" y elige
+   un perfil (por ejemplo, el de tu celular): el programa intentará
+   reconstruir el vídeo con ese perfil.
+   Paso 3: pulsa "Reparar".
+3. El vídeo reparado aparece en una carpeta "Reparados" junto al vídeo
+   dañado, con el nombre "<vídeo>_fixed.mp4". Tus vídeos originales
+   NO se tocan ni se borran. Ábrelo en VLC para comprobarlo.
+
+Si el programa dice que la referencia "no tiene índice (moov)":
+es probable que los archivos estén AL REVÉS o que tu vídeo "sano"
+también esté dañado. Graba un vídeo nuevo de 10-15 segundos con el
+mismo celular, deja que termine de guardar y úsalo como referencia.
+
+OTRAS PESTAÑAS
+--------------
+- "IA": activa o desactiva cada conexión de IA (local, LM Studio-Qwen,
+  externa). La IA local está activada por defecto; las otras dos,
+  apagadas. La IA nunca genera vídeo: solo ayuda a encontrar la
+  estructura del vídeo dañado y a explicar en español qué falló.
+- "Entrenar": entrena el motor ONNX pequeño con tus propios vídeos
+  buenos y corruptos. Necesita Python 3 + numpy (ver "QUÉ HACE FALTA").
+  No se guarda ningún vídeo: solo se guardan fragmentos de 256 bytes
+  con su etiqueta, y la base queda guardada para no volver a cargar
+  los vídeos cada vez.
+- "Ajustes" y "Analizar": opciones avanzadas (modo -s, análisis de
+  átomos). No hace falta tocarlas para reparar.
+
+FORMATOS
+--------
+Directos: MP4, MOV, M4V, 3GP (también HEVC/H.265 en MP4).
+Con conversión previa (botón "Convertir a MP4" en la pestaña Reparar):
+MKV, AVI, WMV, WebM, FLV, MPG, MTS. La conversión intenta primero no
+re-codificar (rápido, sin pérdida); si no se puede, re-codifica a
+H.264 + AAC y lo avisa. La conversión por sí sola NO repara nada:
+después hay que pulsar "Reparar" con una referencia sana.
+
+AVISO DE SMARTSCREEN (LÉEME: ES NORMAL)
+----------------------------------------
+Este programa NO está firmado con un certificado de código, porque
+ese certificado cuesta dinero cada año y este proyecto es gratuito
+y sin ánimo de lucro. Por eso, la primera vez que lo abras, Windows
+puede mostrar una ventana azul que dice algo como:
+
+  "Windows protegió su PC"
+  "Microsoft Defender SmartScreen impidió que se iniciara una
+   aplicación no reconocida. La ejecución de esta aplicación
+   podría poner en riesgo su PC."
+
+Eso NO significa que el programa tenga virus: significa que Windows
+no reconoce al autor porque no pagó por un certificado. Para
+continuar de forma segura, hazlo SOLO si descargaste este ZIP de
+la fuente oficial del proyecto (el repositorio / enlace que te
+pasó quien te lo compartió) y el ZIP no se ha modificado:
+
+  1. En esa ventana azul, pulsa "Más información".
+  2. Aparecerá el botón "Ejecutar de todas formas": púlsalo.
+  3. El programa se abrirá normalmente. Las siguientes veces ya
+     no volverá a aparecer el aviso.
+
+Si descargaste el ZIP de otro sitio que no conoces, NO pulses
+"Ejecutar de todas formas": borra el archivo y consigue el ZIP
+de la fuente oficial. Si tu antivirus marca el .exe, es el mismo
+motivo (programa poco conocido sin firma): puedes permitirlo solo
+si viene de la fuente oficial.
+
+PRIVACIDAD: NADA SALE DE TU PC (SALVO QUE TÚ LO ACTIVES)
+--------------------------------------------------------
+- La reparación, la IA local y el entrenamiento ONNX funcionan 100%
+  sin internet. Tus vídeos nunca se suben a ningún sitio.
+- LM Studio (Qwen local) solo habla con http://localhost:1234, es
+  decir, con tu propia PC, y solo envía un diagnóstico en texto
+  (menos de 50 KB). El vídeo nunca se envía.
+- La IA externa está APAGADA por defecto. Si la activas, solo envía
+  ese mismo diagnóstico en texto (menos de 50 KB), nunca el vídeo
+  ni fotogramas. Antes de activarla puedes ver exactamente qué se
+  enviaría con la opción "--solo-diagnostico" o en la pestaña IA.
+- El entrenamiento NO guarda ningún vídeo: solo ventanas de 256 bytes
+  con su etiqueta. Puedes comprobarlo con "Ver base de entrenamiento".
+
+QUÉ HACE FALTA (ADEMÁS DE ESTE ZIP)
+-----------------------------------
+- Windows 10 u 11, 64 bits. No necesita instalación: es portable,
+  se puede mover la carpeta entera a otro disco o USB.
+- Para reparar CON referencia sana: nada más.
+- Para reparar SIN referencia o convertir otros formatos (MKV, AVI...):
+  ffmpeg en el PATH. Si no está, el programa te lo dirá en español.
+  La forma más fácil: instalar MSYS2 y ejecutar
+  "pacman -S mingw-w64-x86_64-ffmpeg" (o usar un ffmpeg portable
+  y añadir su carpeta al PATH). El ZIP ya trae las librerías FFmpeg
+  (DLLs) que usa el programa, pero NO el programa ffmpeg.exe en sí.
+- Para la pestaña "Entrenar": Python 3 + numpy. En MSYS2:
+  "pacman -S mingw-w64-x86_64-python mingw-w64-x86_64-python-numpy".
+  Sin Python, el resto del programa funciona igual.
+- Para usar Qwen: LM Studio abierto, con Qwen 3.5 o 3.6 cargado y
+  el servidor en marcha (http://localhost:1234). Sin LM Studio,
+  el resto del programa funciona igual.
+
+LO QUE NINGUNA VERSIÓN PUEDE HACER
+----------------------------------
+- Recuperar fotogramas borrados o sobrescritos, ni reparar un archivo
+  de 0 bytes o sin datos de vídeo.
+- Reordenar un archivo fragmentado por una recuperación (bloques
+  desordenados sin índice): se rescata lo contiguo, no lo perdido.
+- "Mejorar la calidad" del vídeo: no se re-codifica el vídeo reparado.
+
+LICENCIA Y CRÉDITOS
+-------------------
+GNU GPL-2.0 (COPYING, sin modificar). Fork mejorado de
+anthwlock/untrunc, a su vez fork del Untrunc original de Federico
+Ponchio (CNR ISTI). El código fuente correspondiente acompaña a
+esta distribución según exige la licencia.
