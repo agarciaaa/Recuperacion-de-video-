@@ -86,6 +86,11 @@ SRC := $(wildcard src/*.cpp src/avc1/*.cpp src/hvc1/*.cpp src/ai/*.cpp src/ai/lo
 OBJ := $(SRC:%.cpp=$(DIR)/%.o)
 DEP := $(OBJ:.o=.d)
 
+# Pruebas unitarias (make test): enlazan todo menos src/main.o.
+TEST_EXE := $(_EXE)-tests
+OBJ_TEST := $(DIR)/tests/test_main.o
+DEP_TEST := $(OBJ_TEST:.o=.d)
+
 SRC_GUI := $(wildcard src/gui/*.cpp)
 OBJ_GUI := $(SRC_GUI:%.cpp=$(DIR)/%.o)
 DEP_GUI := $(OBJ_GUI:.o=.d)
@@ -143,18 +148,22 @@ endif
 #$(info $$OBJ is [${OBJ}])
 #$(info $$OBJ_GUI is [${OBJ_GUI}])
 $(shell mkdir -p $(dir $(OBJ_GUI)) 2>/dev/null)
-$(shell mkdir -p $(DIR)/src/avc1 $(DIR)/src/hvc1 $(DIR)/src/ai $(DIR)/src/ai/local $(DIR)/src/ai/external $(DIR)/src/ai/lmstudio $(DIR)/src/ai/onnx 2>/dev/null)
+$(shell mkdir -p $(DIR)/tests $(DIR)/src/avc1 $(DIR)/src/hvc1 $(DIR)/src/ai $(DIR)/src/ai/local $(DIR)/src/ai/external $(DIR)/src/ai/lmstudio $(DIR)/src/ai/onnx 2>/dev/null)
 
 # ONNX Runtime se detecta por dlopen en el proveedor (onnx_provider.cpp);
 # en Linux hace falta -ldl. En Windows no existe -ldl.
-ifneq ($(_OS), Windows)
+# Se detecta por el compilador (MinGW) y no por $(OS): dentro de
+# una shell de MSYS2 (y en el CI) $(OS) no esta definida y _OS
+# vale "MINGW64_NT-...", asi que antes se anadia -ldl y el enlace
+# fallaba con "cannot find -ldl".
+ifeq (,$(findstring mingw,$(shell $(CXX) -dumpmachine)))
 LDFLAGS += -ldl
 endif
 
 CURL := $(shell command -v curl 2>/dev/null)
 download = $(if $(CURL),curl -L -o $(1) $(2),wget -q --show-progress -O $(1) $(2))
 
-.PHONY: all clean force dist dist-linux dist-windows
+.PHONY: all clean force dist dist-linux dist-windows test
 
 
 all: $(EXE)
@@ -193,6 +202,12 @@ $(EXE): print_info $(OBJ)
 $(EXE)-gui: print_info $(filter-out $(DIR)/src/main.o, $(OBJ)) $(OBJ_GUI)
 	$(CXX) $(filter-out $<,$^) $(LDFLAGS) -o $@
 
+$(TEST_EXE): print_info $(filter-out $(DIR)/src/main.o, $(OBJ)) $(OBJ_TEST)
+	$(CXX) $(filter-out $<,$^) $(LDFLAGS) -o $@
+
+test: $(TEST_EXE)
+	./$(TEST_EXE)
+
 $(DIR)/%/win_resources.o: %/win_resources.rc
 	windres.EXE $< $@
 
@@ -214,11 +229,13 @@ endif
 
 -include $(DEP)
 -include $(DEP_GUI)
+-include $(DEP_TEST)
 
 clean:
 	$(RM) -r $(DIR)
 	$(RM) $(EXE)
 	$(RM) $(EXE)-gui
+	$(RM) $(TEST_EXE)
 
 # Fase 3.2 — Paquete portable (ZIP). La lista de archivos y las
 # verificaciones viven en empaquetar.sh (una sola fuente de verdad);

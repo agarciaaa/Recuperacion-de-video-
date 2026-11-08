@@ -16,21 +16,14 @@
 #include <sstream>
 
 #include "diagnoser.h"
+#include "shell_util.h"
 
 namespace fs = std::filesystem;
 
 // Entrecomilla un argumento para la shell (POSIX y MSYS2), igual
 // que en moov_synthesizer.cpp: sin esto, una ruta con espacios
 // romperia el comando de ffmpeg o permitiria inyeccion.
-static std::string shellQuote(const std::string& s) {
-	std::string out = "'";
-	for (char c : s) {
-		if (c == '\'') out += "'\\''";
-		else out += c;
-	}
-	out += "'";
-	return out;
-}
+static std::string shellQuote(const std::string& s) { return shell::quote(s); }
 
 static std::string lowerExt(const std::string& path) {
 	fs::path p(path);
@@ -160,7 +153,7 @@ bool probeCodecs(const std::string& path, std::string& video_codec,
 	fs::path tmp = fs::temp_directory_path(ec) / "untrunc-codecs.txt";
 	if (ec) return false;
 	std::string cmd = "ffprobe -v error -show_entries stream=codec_type,codec_name "
-	                  "-of csv=p=0 " + shellQuote(path) + " > " + shellQuote(tmp.string()) + " 2>/dev/null";
+	                  "-of csv=p=0 " + shellQuote(path) + " > " + shellQuote(tmp.string()) + shell::discardStderr();
 	if (std::system(cmd.c_str()) != 0) return false;
 	std::ifstream in(tmp);
 	if (!in) return false;
@@ -217,7 +210,7 @@ ConvertResult convertToMp4(const std::string& input,
 		r.error_es = "No se encontró el archivo a convertir: " + input;
 		return r;
 	}
-	if (std::system("ffmpeg -version > /dev/null 2>&1") != 0) {
+	if (!shell::commandAvailable("ffmpeg")) {
 		r.error_es = "No se encontró ffmpeg en el sistema. En Windows, instálalo con "
 		             "MSYS2 (pacman -S mingw-w64-ucrt-x86_64-ffmpeg). Sin ffmpeg no se "
 		             "puede convertir este formato a MP4.";
@@ -234,7 +227,7 @@ ConvertResult convertToMp4(const std::string& input,
 	// salio usable. Por eso el exito se juzga por la salida
 	// (existe y pesa >1 KB), no por el codigo de salida.
 	std::string cmd = "ffmpeg -y -v error -i " + shellQuote(input) +
-	                  " -c copy -map 0 " + shellQuote(r.output) + " 2>/dev/null";
+	                  " -c copy -map 0 " + shellQuote(r.output) + shell::discardStderr();
 	std::system(cmd.c_str());
 	if (fs::exists(r.output, ec) && !ec &&
 	    fs::file_size(r.output, ec) > 1024 && !ec) {
@@ -272,7 +265,7 @@ ConvertResult convertToMp4(const std::string& input,
 	// hace que ffmpeg se queje al final, aunque el MP4 sirva).
 	cmd = "ffmpeg -y -v error -i " + shellQuote(input) +
 	      " -map 0:v:0 -map 0:a? -c:v libx264 -pix_fmt yuv420p -preset veryfast -crf 20 "
-	      "-c:a aac -b:a 128k " + shellQuote(r.output) + " 2>/dev/null";
+	      "-c:a aac -b:a 128k " + shellQuote(r.output) + shell::discardStderr();
 	std::system(cmd.c_str());
 	if (!fs::exists(r.output, ec) || ec ||
 	    fs::file_size(r.output, ec) <= 1024) {

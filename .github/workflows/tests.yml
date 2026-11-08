@@ -1,0 +1,26 @@
+name: tests
+
+# Compila el CLI en Linux y ejecuta las pruebas unitarias en cada
+# push y en cada pull request.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential libavformat-dev libavcodec-dev libavutil-dev
+
+      - name: Build
+        run: make -j"$(nproc)" FF_VER=shared
+
+      - name: Unit tests
+        run: make FF_VER=shared test

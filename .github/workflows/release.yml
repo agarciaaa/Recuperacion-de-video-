@@ -1,8 +1,12 @@
 name: release
 
+# Compila los .exe de Windows en cada push a main (quedan como
+# artefactos descargables del run). La release publica "latest"
+# SOLO se crea al lanzar el workflow a mano (Actions > release >
+# Run workflow), para no publicar una version en cada commit.
 on:
   push:
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -90,6 +94,9 @@ jobs:
           make IS_RELEASE=1
           make untrunc-gui LIBUI_STATIC=1 IS_RELEASE=1
 
+      - name: Unit tests
+        run: make test IS_RELEASE=1
+
       - name: Bundle DLLs, strip and zip
         run: |
           dest="${{ matrix.untr_dest }}"
@@ -113,7 +120,7 @@ jobs:
 
   release:
     needs: [build-windows]
-    if: github.ref == 'refs/heads/master'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write

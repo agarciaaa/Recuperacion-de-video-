@@ -10,21 +10,14 @@
 #include <filesystem>
 
 #include "../../diagnoser.h"
+#include "../../shell_util.h"
 
 namespace fs = std::filesystem;
 
 // Entrecomilla un argumento para la shell (POSIX y MSYS2).
 // Sin esto, una ruta con espacios o caracteres raros romperia
 // el comando de ffmpeg o, peor, permitiria inyeccion.
-static std::string shellQuote(const std::string& s) {
-	std::string out = "'";
-	for (char c : s) {
-		if (c == '\'') out += "'\\''";
-		else out += c;
-	}
-	out += "'";
-	return out;
-}
+static std::string shellQuote(const std::string& s) { return shell::quote(s); }
 
 SyntheticRef buildSyntheticReference(int width, int height, int fps,
                                      const std::string& codec,
@@ -47,8 +40,7 @@ SyntheticRef buildSyntheticReference(int width, int height, int fps,
 		return r;
 	}
 	// ffmpeg en el PATH (Linux, MSYS2 en Windows).
-	int has_ffmpeg = std::system("ffmpeg -version > /dev/null 2>&1");
-	if (has_ffmpeg != 0) {
+	if (!shell::commandAvailable("ffmpeg")) {
 		r.error_es = "No se encontró ffmpeg en el sistema. El modo sin referencia necesita "
 		             "ffmpeg para generar la referencia sintética. En Windows, instálalo "
 		             "con MSYS2 (pacman -S mingw-w64-x86_64-ffmpeg) o usa una referencia sana.";
