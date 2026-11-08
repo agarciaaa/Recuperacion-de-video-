@@ -4,6 +4,7 @@
 */
 
 #include "external_provider.h"
+#include "../../upath.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -181,18 +182,18 @@ AiSuggestion ExternalProvider::analyze(const DiagnosticPacket& packet,
 	int http_code = 0;
 	bool sent = false;
 	for (int attempt = 0; attempt <= cfg_.max_retries; attempt++) {
-		std::string cmd = "curl -sS --config " + shellQuote(curlrc.string()) +
-		                  " --data-binary @" + shellQuote(packet_file.string()) +
-		                  " -o " + shellQuote(resp_file.string()) +
+		std::string cmd = "curl -sS --config " + shellQuote(upath::fromPath(curlrc)) +
+		                  " --data-binary @" + shellQuote(upath::fromPath(packet_file)) +
+		                  " -o " + shellQuote(upath::fromPath(resp_file)) +
 		                  " " + shellQuote(cfg_.endpoint) +
 		                  " " + kStderrNull;
-		FILE* pipe = popen(cmd.c_str(), "r");
+		FILE* pipe = upath::openPipe(cmd, "r");
 		if (!pipe) break;
 		char buf[64] = {0};
 		std::string out;
 		size_t n;
 		while ((n = fread(buf, 1, sizeof(buf) - 1, pipe)) > 0) out.append(buf, n);
-		int rc = pclose(pipe);
+		int rc = upath::closePipe(pipe);
 		(void)rc;
 		try { http_code = std::stoi(out); } catch (...) { http_code = 0; }
 		if (http_code >= 200 && http_code < 300) { sent = true; break; }

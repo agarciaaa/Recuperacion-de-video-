@@ -22,9 +22,11 @@
 
 #include "../src/ai/ai_provider.h"
 #include "../src/diagnoser.h"
+#include "../src/file.h"
 #include "../src/formatos.h"
 #include "../src/repair_job.h"
 #include "../src/shell_util.h"
+#include "../src/upath.h"
 
 namespace fs = std::filesystem;
 
@@ -95,13 +97,17 @@ public:
 		std::error_code ec;
 		fs::remove_all(path_, ec);
 	}
+	// `name` en UTF-8 (puede llevar subcarpetas, acentos y ñ).
 	std::string write(const std::string& name, const Bytes& data) const {
-		fs::path p = path_ / name;
+		fs::path p = path_ / upath::toPath(name);
+		fs::create_directories(p.parent_path());
 		std::ofstream f(p, std::ios::binary);
 		f.write(reinterpret_cast<const char*>(data.data()), (std::streamsize)data.size());
-		return p.string();
+		return upath::fromPath(p);
 	}
-	std::string path(const std::string& name) const { return (path_ / name).string(); }
+	std::string path(const std::string& name) const {
+		return upath::fromPath(path_ / upath::toPath(name));
+	}
 
 private:
 	fs::path path_;
@@ -328,6 +334,49 @@ static void testDiagnosticPacket() {
 	CHECK(!validateDiagnosticPacket(not_json, why));
 }
 
+// Rutas con acentos y ñ (p. ej. "C:\Users\José\Mis Vídeos"). Antes, en
+// Windows, el pre-vuelo decia "no existe" / "formato desconocido".
+static void testUnicodePaths(const TempDir& dir) {
+	const std::string carpeta = "Mis Vídeos de José ñandú";
+	// Ida y vuelta UTF-8 -> ruta -> UTF-8 sin perder nada.
+	CHECK_EQ(upath::fromPath(upath::toPath(carpeta)), carpeta);
+#ifdef _WIN32
+	CHECK(upath::toPath(carpeta).wstring() == std::wstring(L"Mis Vídeos de José ñandú"));
+#endif
+
+	std::string ref = dir.write(carpeta + "/referencia sana.mp4", healthyMp4());
+	std::string bad = dir.write(carpeta + "/vídeo dañado.mp4", truncatedMp4());
+	CHECK(fs::exists(upath::toPath(ref)));
+
+	FileProbe p = probeFile(bad);
+	CHECK(p.exists);
+	CHECK(p.has_ftyp);
+	CHECK(p.has_mdat);
+	CHECK(detectFormat(bad).kind == FormatKind::Bmff);
+	CHECK(preflightCheck(ref, bad).code == DiagCode::Ok);
+	CHECK(preflightCheck(ref, ref).code == DiagCode::SameFile);
+
+	// La carpeta Reparados/ se crea junto al danado, con su nombre real.
+	std::string reparados = ensureReparadosDir(bad);
+	CHECK(!reparados.empty());
+	CHECK(isdir(reparados));  // el nucleo decide con esto si -dst es carpeta
+	CHECK(!isdir(bad));
+	CHECK(fs::is_directory(upath::toPath(reparados)));
+	CHECK_EQ(upath::fromPath(upath::toPath(reparados).parent_path().filename()), carpeta);
+	CHECK_EQ(upath::fromPath(upath::toPath(repairedPathInReparados(bad)).filename()),
+	         std::string("vídeo dañado.mp4_fixed.mp4"));
+	CHECK_EQ(upath::fromPath(upath::toPath(convertedPathDefault(bad)).filename()),
+	         std::string("vídeo dañado_convertido.mp4"));
+
+	// Los comandos externos tambien reciben la ruta bien: se pide a la
+	// shell que compruebe que el archivo existe.
+#ifdef _WIN32
+	CHECK(upath::system("if exist " + shell::quote(bad) + " (exit 0) else (exit 1)") == 0);
+#else
+	CHECK(upath::system("test -f " + shell::quote(bad)) == 0);
+#endif
+}
+
 int main() {
 	TempDir dir;
 	testShellQuote();
@@ -339,6 +388,7 @@ int main() {
 	testPreflight(dir);
 	testJsonHelpers();
 	testDiagnosticPacket();
+	testUnicodePaths(dir);
 
 	std::cout << g_checks << " comprobaciones, " << g_failures << " fallos\n";
 	return g_failures == 0 ? 0 : 1;

@@ -101,6 +101,8 @@ ifeq ($(TARGET), $(_EXE)-gui)
 	machine = $(shell $(CXX) -dumpmachine)
 	ifneq (,$(findstring mingw,$(machine)))
 		LDFLAGS += -Wl,--subsystem,windows
+		# GetOpenFileNameW / CommDlgExtendedError (seleccion multiple).
+		LDFLAGS += -lcomdlg32
 		ifeq ($(LIBUI_STATIC), 1)
 			OBJ_GUI += $(DIR)/src/gui/win_resources.o
 			LDFLAGS += -lpthread -luser32 -lkernel32 -lusp10 -lgdi32 -lcomctl32 -luxtheme -lmsimg32 -lcomdlg32 -ld2d1 -ldwrite -lole32 -loleaut32 -loleacc

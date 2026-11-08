@@ -4,6 +4,7 @@
 */
 
 #include "profile_db.h"
+#include "../../upath.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -71,7 +72,7 @@ std::vector<CameraProfile> loadProfiles(const std::string& json_path) {
 	// "profiles/profiles.json" ya cubre ese caso.)
 	std::string text;
 	for (const auto& c : candidates) {
-		std::ifstream f(c);
+		std::ifstream f(upath::toPath(c));
 		if (!f) continue;
 		std::ostringstream ss;
 		ss << f.rdbuf();

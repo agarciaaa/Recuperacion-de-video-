@@ -8,9 +8,12 @@
 // min/max (el resto del archivo es C++ estándar).
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 #include <commdlg.h>
+#include <cderr.h>  // FNERR_BUFFERTOOSMALL (WIN32_LEAN_AND_MEAN lo excluye)
 #endif
 
 #include <string.h>  // memset
@@ -30,6 +33,8 @@ extern "C" {
 #include "../formatos.h"
 #include "../mp4.h"
 #include "../repair_job.h"
+#include "../shell_util.h"
+#include "../upath.h"
 #include "../ai/ai_provider.h"
 #include "../ai/external/external_provider.h"
 #include "../ai/hybrid.h"
@@ -874,7 +879,7 @@ void Gui::Train::updateModelLabel() {
 // que aportaron (nombre base + hash corto, nunca ruta) y fecha de
 // última actualización. Si no hay base, lo dice.
 static std::string trainReadTextFile(const std::string& path) {
-	std::ifstream f(path);
+	std::ifstream f(upath::toPath(path));
 	if (!f) return "";
 	std::stringstream ss;
 	ss << f.rdbuf();
@@ -907,8 +912,8 @@ static std::string trainJsonStringAfter(const std::string& json, const std::stri
 }
 
 std::string Gui::Train::baseSummary() {
-	std::string man_path = (std::filesystem::path(onnxDatasetDir()) /
-	                        "dataset_manifest.json").string();
+	std::string man_path = upath::fromPath(upath::toPath(onnxDatasetDir()) /
+	                                       "dataset_manifest.json");
 	std::string man = trainReadTextFile(man_path);
 	if (man.empty())
 		return "Sin base todavía: agrega vídeos buenos y pulsa "
@@ -992,14 +997,14 @@ void Gui::Train::refresh() {
 	if (btn_ver_base_) {
 		std::error_code ec;
 		bool hay_base = std::filesystem::exists(
-		    std::filesystem::path(onnxDatasetDir()) / "dataset_manifest.json", ec);
+		    upath::toPath(onnxDatasetDir()) / "dataset_manifest.json", ec);
 		if (hay_base) uiControlEnable(uiControl(btn_ver_base_));
 		else uiControlDisable(uiControl(btn_ver_base_));
 	}
 	if (btn_borrar_) {
 		std::error_code ec;
 		bool hay_base = std::filesystem::exists(
-		    std::filesystem::path(onnxDatasetDir()) / "dataset.npz", ec);
+		    upath::toPath(onnxDatasetDir()) / "dataset.npz", ec);
 		if (hay_base) uiControlEnable(uiControl(btn_borrar_));
 		else uiControlDisable(uiControl(btn_borrar_));
 	}
@@ -1009,14 +1014,14 @@ void Gui::Train::refresh() {
 		// ya hay, sin volver a cargar ningún vídeo.
 		std::error_code ec;
 		bool hay_base = std::filesystem::exists(
-		    std::filesystem::path(onnxDatasetDir()) / "dataset.npz", ec);
+		    upath::toPath(onnxDatasetDir()) / "dataset.npz", ec);
 		if (hay_buenos || hay_base) uiControlEnable(uiControl(btn_train_));
 		else uiControlDisable(uiControl(btn_train_));
 	}
 	if (btn_test_) {
 		std::error_code ec;
 		bool hay_dataset = std::filesystem::exists(
-		    std::filesystem::path(onnxDatasetDir()) / "dataset.npz", ec);
+		    upath::toPath(onnxDatasetDir()) / "dataset.npz", ec);
 		if (hay_dataset) uiControlEnable(uiControl(btn_test_));
 		else uiControlDisable(uiControl(btn_test_));
 	}
@@ -1466,15 +1471,10 @@ static std::string assistantBaseName(const std::string& path) {
 // shellQuote() de formatos.cpp (rutas con espacios o caracteres
 // raros no deben romper el comando ni permitir inyeccion). En
 // Windows (MSYS2/cmd) se usa la misma convencion que formatos.cpp.
-static std::string assistantQuote(const std::string& s) {
-	std::string out = "'";
-	for (char c : s) {
-		if (c == '\'') out += "'\\''";
-		else out += c;
-	}
-	out += "'";
-	return out;
-}
+// Comillas de la shell de std::system(): dobles en Windows (cmd.exe),
+// simples en POSIX. Antes eran siempre simples y en Windows ffmpeg
+// recibia la ruta con las comillas dentro (la miniatura fallaba).
+static std::string assistantQuote(const std::string& s) { return shell::quote(s); }
 
 #ifdef _WIN32
 // Entrecomillado para el comando `start` de cmd.exe (comillas
@@ -1503,15 +1503,15 @@ static void assistantOpenWithDefaultApp(const std::string& path) {
 #else
 	cmd = "xdg-open " + assistantQuote(path) + " > /dev/null 2>&1 &";
 #endif
-	std::system(cmd.c_str());
+	upath::system(cmd);
 }
 
 // Primer fotograma: <salida>_preview.jpg junto al reparado, en
 // Reparados/. p. ej. truncado.mp4_fixed.mp4 -> truncado.mp4_fixed_preview.jpg
 static std::string assistantPreviewImagePath(const std::string& output) {
-	std::filesystem::path p(output);
+	std::filesystem::path p = upath::toPath(output);
 	p.replace_extension("_preview.jpg");
-	return p.string();
+	return upath::fromPath(p);
 }
 
 // Datos que viajan al hilo principal cuando una conversion termina:
@@ -1962,7 +1962,7 @@ void Gui::Assistant::previewFirstSeconds(uiButton* button, void* data) {
 		std::string cmd = "ffplay -autoexit -t 5 -v error " + assistantQuote(target) +
 		                  " > /dev/null 2>&1 &";
 #endif
-		std::system(cmd.c_str());
+		upath::system(cmd);
 	}, target).detach();
 }
 
@@ -1978,14 +1978,15 @@ void Gui::Assistant::previewFirstFrame(uiButton* button, void* data) {
 	std::thread([](std::string target, std::string img) {
 		std::string cmd = "ffmpeg -y -v error -ss 1 -i " + assistantQuote(target) +
 		                  " -vframes 1 " + assistantQuote(img);
-		std::system(cmd.c_str());
+		upath::system(cmd);
 		// El exito se juzga por la salida (existe y pesa > 0),
 		// no por el codigo de ffmpeg: igual que hace convertToMp4
 		// con archivos truncados, que casi siempre hacen que
 		// ffmpeg se queje al final aunque el archivo sirva.
 		std::error_code ec;
-		bool ok = std::filesystem::exists(img, ec) && !ec &&
-		          std::filesystem::file_size(img, ec) > 0 && !ec;
+		const std::filesystem::path img_path = upath::toPath(img);
+		bool ok = std::filesystem::exists(img_path, ec) && !ec &&
+		          std::filesystem::file_size(img_path, ec) > 0 && !ec;
 		if (ok) {
 			ASYNC(Gui::Assistant::showPreviewQueued, new std::string(
 			    "Miniatura: " + img + " (primer fotograma, segundo 1)."));

@@ -17,6 +17,7 @@
 
 #include "diagnoser.h"
 #include "shell_util.h"
+#include "upath.h"
 
 namespace fs = std::filesystem;
 
@@ -26,8 +27,7 @@ namespace fs = std::filesystem;
 static std::string shellQuote(const std::string& s) { return shell::quote(s); }
 
 static std::string lowerExt(const std::string& path) {
-	fs::path p(path);
-	std::string e = p.extension().string();
+	std::string e = upath::fromPath(upath::toPath(path).extension());
 	for (char& c : e) c = (char)std::tolower((unsigned char)c);
 	return e;
 }
@@ -42,10 +42,11 @@ static bool startsWith(const unsigned char* buf, size_t n, const char* magic, si
 FormatInfo detectFormat(const std::string& path) {
 	FormatInfo info;
 	std::error_code ec;
-	if (!fs::exists(path, ec) || ec) { info.name = "desconocido"; return info; }
-	if (fs::file_size(path, ec) == 0 || ec) { info.name = "vacío"; return info; }
+	const fs::path fpath = upath::toPath(path);
+	if (!fs::exists(fpath, ec) || ec) { info.name = "desconocido"; return info; }
+	if (fs::file_size(fpath, ec) == 0 || ec) { info.name = "vacío"; return info; }
 
-	std::ifstream f(path, std::ios::binary);
+	std::ifstream f(fpath, std::ios::binary);
 	if (!f) { info.name = "desconocido"; return info; }
 	unsigned char buf[4096] = {0};
 	f.read(reinterpret_cast<char*>(buf), sizeof(buf));
@@ -138,11 +139,11 @@ bool isDirectlyRepairable(const std::string& path) {
 }
 
 std::string convertedPathDefault(const std::string& input) {
-	fs::path p(input);
+	fs::path p = upath::toPath(input);
 	fs::path parent = p.parent_path();
 	if (parent.empty()) parent = ".";
-	std::string stem = p.stem().string();
-	return (parent / (stem + "_convertido.mp4")).string();
+	std::string stem = upath::fromPath(p.stem());
+	return upath::fromPath(parent / upath::toPath(stem + "_convertido.mp4"));
 }
 
 bool probeCodecs(const std::string& path, std::string& video_codec,
@@ -153,8 +154,8 @@ bool probeCodecs(const std::string& path, std::string& video_codec,
 	fs::path tmp = fs::temp_directory_path(ec) / "untrunc-codecs.txt";
 	if (ec) return false;
 	std::string cmd = "ffprobe -v error -show_entries stream=codec_type,codec_name "
-	                  "-of csv=p=0 " + shellQuote(path) + " > " + shellQuote(tmp.string()) + shell::discardStderr();
-	if (std::system(cmd.c_str()) != 0) return false;
+	                  "-of csv=p=0 " + shellQuote(path) + " > " + shellQuote(upath::fromPath(tmp)) + shell::discardStderr();
+	if (upath::system(cmd) != 0) return false;
 	std::ifstream in(tmp);
 	if (!in) return false;
 	std::string line;
@@ -206,7 +207,7 @@ ConvertResult convertToMp4(const std::string& input,
                            bool recode_ok) {
 	ConvertResult r;
 	std::error_code ec;
-	if (!fs::exists(input, ec) || ec) {
+	if (!fs::exists(upath::toPath(input), ec) || ec) {
 		r.error_es = "No se encontró el archivo a convertir: " + input;
 		return r;
 	}
@@ -217,7 +218,8 @@ ConvertResult convertToMp4(const std::string& input,
 		return r;
 	}
 	r.output = output.empty() ? convertedPathDefault(input) : output;
-	if (fs::equivalent(fs::path(input), fs::path(r.output), ec) && !ec) {
+	const fs::path out_path = upath::toPath(r.output);
+	if (fs::equivalent(upath::toPath(input), out_path, ec) && !ec) {
 		r.error_es = "La salida no puede ser el mismo archivo que la entrada.";
 		return r;
 	}
@@ -228,9 +230,9 @@ ConvertResult convertToMp4(const std::string& input,
 	// (existe y pesa >1 KB), no por el codigo de salida.
 	std::string cmd = "ffmpeg -y -v error -i " + shellQuote(input) +
 	                  " -c copy -map 0 " + shellQuote(r.output) + shell::discardStderr();
-	std::system(cmd.c_str());
-	if (fs::exists(r.output, ec) && !ec &&
-	    fs::file_size(r.output, ec) > 1024 && !ec) {
+	upath::system(cmd);
+	if (fs::exists(out_path, ec) && !ec &&
+	    fs::file_size(out_path, ec) > 1024 && !ec) {
 		std::string vc, ac;
 		if (probeCodecs(r.output, vc, ac) && mp4CompatibleCodec(vc, ac)) {
 			r.ok = true;
@@ -240,7 +242,7 @@ ConvertResult convertToMp4(const std::string& input,
 		}
 		// El remux "funciono" pero dejo codecs que Untrunc no
 		// repara (VP9, Opus, WMV2...): hay que re-codificar.
-		fs::remove(r.output, ec);
+		fs::remove(out_path, ec);
 		if (!recode_ok) {
 			r.error_es = "El archivo se convirtió a MP4, pero sus códecs (" +
 			             (vc.empty() ? std::string("desconocido") : vc) + " / " +
@@ -251,7 +253,7 @@ ConvertResult convertToMp4(const std::string& input,
 		}
 	} else {
 		// El remux fallo del todo (p. ej. WMV2 no cabe en MP4).
-		fs::remove(r.output, ec);
+		fs::remove(out_path, ec);
 		if (!recode_ok) {
 			r.error_es = "No se pudo convertir a MP4 sin re-codificar (los códecs de "
 			             "este formato no caben en un MP4). Re-codificar a H.264 + AAC "
@@ -266,9 +268,9 @@ ConvertResult convertToMp4(const std::string& input,
 	cmd = "ffmpeg -y -v error -i " + shellQuote(input) +
 	      " -map 0:v:0 -map 0:a? -c:v libx264 -pix_fmt yuv420p -preset veryfast -crf 20 "
 	      "-c:a aac -b:a 128k " + shellQuote(r.output) + shell::discardStderr();
-	std::system(cmd.c_str());
-	if (!fs::exists(r.output, ec) || ec ||
-	    fs::file_size(r.output, ec) <= 1024) {
+	upath::system(cmd);
+	if (!fs::exists(out_path, ec) || ec ||
+	    fs::file_size(out_path, ec) <= 1024) {
 		r.error_es = "FFmpeg no pudo convertir este archivo a MP4 ni siquiera "
 		             "re-codificando. Puede que el archivo esté demasiado dañado "
 		             "o use un códec que FFmpeg no entiende.";

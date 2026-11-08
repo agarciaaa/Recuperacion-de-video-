@@ -11,6 +11,7 @@
 
 #include "../../diagnoser.h"
 #include "../../shell_util.h"
+#include "../../upath.h"
 
 namespace fs = std::filesystem;
 
@@ -68,20 +69,20 @@ SyntheticRef buildSyntheticReference(int width, int height, int fps,
 	                  " -c:v " + encoder + " -profile:v " + prof +
 	                  " -pix_fmt yuv420p -g " + std::to_string(fps) +
 	                  " -c:a aac -b:a 96k -ar 48000 -ac 2 -shortest " +
-	                  shellQuote(out.string());
-	int rc = std::system(cmd.c_str());
+	                  shellQuote(upath::fromPath(out));
+	int rc = upath::system(cmd);
 	if (rc != 0) {
 		r.error_es = "ffmpeg no pudo generar la referencia sintética (código de salida " +
 		             std::to_string(rc) + ").";
 		return r;
 	}
 	// Verificar que la referencia generada tiene moov (si no, no sirve).
-	FileProbe probe = probeFile(out.string());
+	FileProbe probe = probeFile(upath::fromPath(out));
 	if (!probe.has_moov) {
 		r.error_es = "La referencia sintética generada no tiene índice (moov); no se puede usar.";
 		return r;
 	}
 	r.ok = true;
-	r.path = out.string();
+	r.path = upath::fromPath(out);
 	return r;
 }

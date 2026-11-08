@@ -12,6 +12,7 @@
 #include "common.h"
 #include "file.h"
 #include "mp4.h"
+#include "upath.h"
 
 namespace fs = std::filesystem;
 
@@ -54,8 +55,9 @@ Attempt runAttempt(const std::string& ref, const std::string& corrupt) {
 		a.output = mp4.getPathRepaired(ref, corrupt);
 		a.duration_ms = mp4.getDurationInMs();
 		std::error_code ec;
-		if (fs::exists(a.output, ec) && !ec)
-			a.out_bytes = fs::file_size(a.output, ec);
+		const fs::path out_path = upath::toPath(a.output);
+		if (fs::exists(out_path, ec) && !ec)
+			a.out_bytes = fs::file_size(out_path, ec);
 	} catch (const DiagnoserError& e) {
 		a.threw = true;
 		a.error = e.what();

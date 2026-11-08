@@ -4,6 +4,7 @@
 */
 
 #include "frame_scanner.h"
+#include "../../upath.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -26,12 +27,12 @@ static void countSliceSize(FrameScan& s, uint32_t len) {
 FrameScan scanFramesFromFile(const std::string& path, size_t max_scan_bytes) {
 	FrameScan s;
 	std::error_code ec;
-	uint64_t file_size = (uint64_t)fs::file_size(path, ec);
+	uint64_t file_size = (uint64_t)fs::file_size(upath::toPath(path), ec);
 	if (ec || file_size == 0) {
 		s.note_es = "Archivo vacio o inexistente.";
 		return s;
 	}
-	std::ifstream f(path, std::ios::binary);
+	std::ifstream f(upath::toPath(path), std::ios::binary);
 	if (!f) {
 		s.note_es = "No se pudo abrir el archivo.";
 		return s;

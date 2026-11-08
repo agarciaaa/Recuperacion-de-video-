@@ -12,6 +12,7 @@
 
 #include "diagnoser.h"
 #include "formatos.h"
+#include "upath.h"
 
 #include <algorithm>
 #include <cmath>
@@ -50,14 +51,15 @@ std::string prettyBytesDiag(uint64_t bytes) {
 
 static bool sameFilePaths(const std::string& a, const std::string& b) {
 	std::error_code ec;
-	if (fs::exists(a, ec) && fs::exists(b, ec)) {
+	const fs::path pa = upath::toPath(a), pb = upath::toPath(b);
+	if (fs::exists(pa, ec) && fs::exists(pb, ec)) {
 		std::error_code ec2;
-		if (fs::equivalent(a, b, ec2) && !ec2) return true;
+		if (fs::equivalent(pa, pb, ec2) && !ec2) return true;
 	}
 	// Comparacion por ruta normalizada (por si uno no existe).
 	std::error_code ec3, ec4;
-	auto ca = fs::weakly_canonical(fs::path(a), ec3);
-	auto cb = fs::weakly_canonical(fs::path(b), ec4);
+	auto ca = fs::weakly_canonical(pa, ec3);
+	auto cb = fs::weakly_canonical(pb, ec4);
 	return !ec3 && !ec4 && ca == cb;
 }
 
@@ -136,7 +138,8 @@ static void scanDeepAtoms(const std::vector<unsigned char>& buf,
 FileProbe probeFile(const std::string& path) {
 	FileProbe out;
 	std::error_code ec;
-	if (!fs::exists(path, ec) || ec) return out;
+	const fs::path fpath = upath::toPath(path);
+	if (!fs::exists(fpath, ec) || ec) return out;
 	out.exists = true;
 	// Formato por contenido (formatos.h): un .mp4 renombrado a
 	// .mov sigue siendo MP4, y un MKV renombrado a .mp4 sigue
@@ -145,11 +148,11 @@ FileProbe probeFile(const std::string& path) {
 	FormatInfo fi = detectFormat(path);
 	out.format_es = fi.name;
 	out.is_bmff = fi.is_bmff;
-	out.size = fs::file_size(path, ec);
+	out.size = fs::file_size(fpath, ec);
 	if (ec) out.size = 0;
 	if (out.size == 0) return out;
 
-	std::ifstream f(path, std::ios::binary);
+	std::ifstream f(fpath, std::ios::binary);
 	if (!f) return out;
 
 	// 1) Atomos de nivel superior.
@@ -310,7 +313,7 @@ std::string diagMessageEs(const DiagReport& r) {
 	// en el mensaje de error lo primero que se lee debe ser QUÉ
 	// archivo falló, sin tener que descifrar una ruta larga.
 	auto baseNameDiag = [](const std::string& p) {
-		std::string f = fs::path(p).filename().string();
+		std::string f = upath::fromPath(upath::toPath(p).filename());
 		return f.empty() ? p : f;
 	};
 	auto fileLine = [&](const char* label, const std::string& p, const FileProbe& f) {
@@ -466,22 +469,22 @@ std::string repairedPathInReparados(const std::string& corrupt_path) {
 	// <nombre-completo>_fixed<ext>, es decir "truncado.mp4_fixed.mp4"
 	// (getPathRepaired(): corrupt + "_fixed" + sufijo + extension).
 	// Aqui se respeta ese nombre para no romper alreadyRepaired().
-	fs::path p(corrupt_path);
+	fs::path p = upath::toPath(corrupt_path);
 	fs::path parent = p.parent_path();
 	if (parent.empty()) parent = ".";
-	std::string filename = p.filename().string();
-	std::string ext = p.extension().string();
+	std::string filename = upath::fromPath(p.filename());
+	std::string ext = upath::fromPath(p.extension());
 	if (ext.empty()) ext = ".mp4";
-	return (parent / "Reparados" / (filename + "_fixed" + ext)).string();
+	return upath::fromPath(parent / "Reparados" / upath::toPath(filename + "_fixed" + ext));
 }
 
 std::string ensureReparadosDir(const std::string& corrupt_path) {
-	fs::path p(corrupt_path);
+	fs::path p = upath::toPath(corrupt_path);
 	fs::path parent = p.parent_path();
 	if (parent.empty()) parent = ".";
 	fs::path dir = parent / "Reparados";
 	std::error_code ec;
 	fs::create_directories(dir, ec);
 	if (ec) return "";
-	return dir.string();
+	return upath::fromPath(dir);
 }

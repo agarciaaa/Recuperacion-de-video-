@@ -4,6 +4,7 @@
 */
 
 #include "onnx_provider.h"
+#include "../../upath.h"
 
 #include <algorithm>
 #include <cmath>
@@ -29,32 +30,32 @@ static const int kFeatures = 264;
 // Rutas
 // ---------------------------------------------------------------------------
 std::string onnxTrainingDir() {
-	const char* home = std::getenv(
+	std::string home = upath::getenv(
 #ifdef _WIN32
 	    "USERPROFILE"
 #else
 	    "HOME"
 #endif
 	);
-	if (!home || !*home) {
+	if (home.empty()) {
 #ifdef _WIN32
-		home = std::getenv("HOME");
+		home = upath::getenv("HOME");
 #else
-		home = std::getenv("USERPROFILE");
+		home = upath::getenv("USERPROFILE");
 #endif
 	}
-	if (!home || !*home) return "";
-	return (fs::path(home) / ".config" / "untrunc" / "entrenamiento").string();
+	if (home.empty()) return "";
+	return upath::fromPath(upath::toPath(home) / ".config" / "untrunc" / "entrenamiento");
 }
 
 std::string onnxModelActivoDir() {
 	std::string d = onnxTrainingDir();
-	return d.empty() ? "" : (fs::path(d) / "modelo_activo").string();
+	return d.empty() ? "" : upath::fromPath(upath::toPath(d) / "modelo_activo");
 }
 
 std::string onnxDatasetDir() {
 	std::string d = onnxTrainingDir();
-	return d.empty() ? "" : (fs::path(d) / "dataset").string();
+	return d.empty() ? "" : upath::fromPath(upath::toPath(d) / "dataset");
 }
 
 // Ruta del ejecutable guardada al arrancar (ver cabecera).
@@ -74,63 +75,55 @@ static std::string exeDir(const char* argv0) {
 	argv0 = effectiveArgv0(argv0);
 	if (argv0 && *argv0) {
 		std::error_code ec;
-		fs::path p(argv0);
+		fs::path p = upath::toPath(argv0);
 		// Si argv0 tiene directorio (p. ej. "./untrunc" o
 		// "C:\carpeta\untrunc-gui.exe"), ese es el exe.
 		if (p.has_parent_path()) {
 			fs::path abs = fs::absolute(p, ec);
-			if (!ec) return abs.parent_path().string();
+			if (!ec) return upath::fromPath(abs.parent_path());
 		}
 		// Nombre sin directorio (lanzado por PATH): la ruta
 		// real del ejecutable, no el directorio de trabajo.
-#ifdef _WIN32
-		char buf[MAX_PATH];
-		DWORD n = GetModuleFileNameA(nullptr, buf, MAX_PATH);
-		if (n > 0 && n < MAX_PATH)
-			return fs::path(buf).parent_path().string();
-#else
-		std::error_code ec2;
-		fs::path self = fs::read_symlink("/proc/self/exe", ec2);
-		if (!ec2 && !self.empty())
-			return self.parent_path().string();
-#endif
+		std::string self = upath::executablePath();
+		if (!self.empty())
+			return upath::fromPath(upath::toPath(self).parent_path());
 	}
 	return "";
 }
 
 std::string findTrainScript(const char* argv0) {
-	const char* env = std::getenv("UNTRUNC_TRAIN_SCRIPT");
-	if (env && *env && fs::exists(env)) return env;
+	const std::string env = upath::getenv("UNTRUNC_TRAIN_SCRIPT");
+	if (!env.empty() && fs::exists(upath::toPath(env))) return env;
 	std::string dir = exeDir(effectiveArgv0(argv0));
 	std::vector<fs::path> candidatos;
 	if (!dir.empty()) {
-		candidatos.push_back(fs::path(dir) / "tools" / "train_onnx.py");
-		candidatos.push_back(fs::path(dir) / "src" / "ai" / "onnx" / "train_onnx.py");
-		candidatos.push_back(fs::path(dir) / ".." / "src" / "ai" / "onnx" / "train_onnx.py");
+		candidatos.push_back(upath::toPath(dir) / "tools" / "train_onnx.py");
+		candidatos.push_back(upath::toPath(dir) / "src" / "ai" / "onnx" / "train_onnx.py");
+		candidatos.push_back(upath::toPath(dir) / ".." / "src" / "ai" / "onnx" / "train_onnx.py");
 	}
 	candidatos.push_back(fs::path("src") / "ai" / "onnx" / "train_onnx.py");
 	candidatos.push_back(fs::path("tools") / "train_onnx.py");
 	for (auto& c : candidatos) {
 		std::error_code ec;
-		if (fs::exists(c, ec)) return fs::absolute(c, ec).string();
+		if (fs::exists(c, ec)) return upath::fromPath(fs::absolute(c, ec));
 	}
 	return "";
 }
 
 std::string findBaseModelDir(const char* argv0) {
-	const char* env = std::getenv("UNTRUNC_ONNX_BASE");
-	if (env && *env && fs::exists(fs::path(env) / "model_info.json")) return env;
+	const std::string env = upath::getenv("UNTRUNC_ONNX_BASE");
+	if (!env.empty() && fs::exists(upath::toPath(env) / "model_info.json")) return env;
 	std::string dir = exeDir(effectiveArgv0(argv0));
 	std::vector<fs::path> candidatos;
 	if (!dir.empty()) {
-		candidatos.push_back(fs::path(dir) / "models" / "onnx_base");
-		candidatos.push_back(fs::path(dir) / "src" / "ai" / "onnx" / "modelo_base");
-		candidatos.push_back(fs::path(dir) / ".." / "src" / "ai" / "onnx" / "modelo_base");
+		candidatos.push_back(upath::toPath(dir) / "models" / "onnx_base");
+		candidatos.push_back(upath::toPath(dir) / "src" / "ai" / "onnx" / "modelo_base");
+		candidatos.push_back(upath::toPath(dir) / ".." / "src" / "ai" / "onnx" / "modelo_base");
 	}
 	candidatos.push_back(fs::path("src") / "ai" / "onnx" / "modelo_base");
 	for (auto& c : candidatos) {
 		std::error_code ec;
-		if (fs::exists(c / "model_info.json", ec)) return fs::absolute(c, ec).string();
+		if (fs::exists(c / "model_info.json", ec)) return upath::fromPath(fs::absolute(c, ec));
 	}
 	return "";
 }
@@ -171,7 +164,7 @@ static bool jsonFloatArray(const std::string& json, const std::string& key,
 }
 
 static std::string readFileText(const std::string& path) {
-	std::ifstream f(path);
+	std::ifstream f(upath::toPath(path));
 	if (!f) return "";
 	std::stringstream ss;
 	ss << f.rdbuf();
@@ -203,7 +196,7 @@ bool readOnnxModelInfo(const std::string& dir, OnnxModelInfo& info) {
 		info.error_es = "No hay carpeta de modelo configurada.";
 		return false;
 	}
-	std::string txt = readFileText((fs::path(dir) / "model_info.json").string());
+	std::string txt = readFileText(upath::fromPath(upath::toPath(dir) / "model_info.json"));
 	if (txt.empty()) {
 		info.error_es = "No hay model_info.json en " + dir + " (modelo no entrenado).";
 		return false;
@@ -334,8 +327,8 @@ int runTrainScript(const std::vector<std::string>& args, std::string& why_es,
 #else
 	std::string python = "python3";
 #endif
-	const char* env_py = std::getenv("UNTRUNC_PYTHON");
-	if (env_py && *env_py) python = env_py;
+	const std::string env_py = upath::getenv("UNTRUNC_PYTHON");
+	if (!env_py.empty()) python = env_py;
 #ifdef _WIN32
 	// Si el intérprete tiene espacios en su ruta (p. ej.
 	// UNTRUNC_PYTHON=C:\Program Files\...), entrecomillarlo haría
@@ -345,9 +338,11 @@ int runTrainScript(const std::vector<std::string>& args, std::string& why_es,
 	// dirá. El `python` de PATH (caso normal) no tiene espacios y
 	// no pasa por aquí.
 	if (python.find(' ') != std::string::npos) {
-		char buf[MAX_PATH];
-		DWORD n = GetShortPathNameA(python.c_str(), buf, MAX_PATH);
-		if (n > 0 && n < MAX_PATH) python.assign(buf, n);
+		// Versión W: la ruta puede tener acentos (C:\Users\José\...).
+		const std::wstring wpy = upath::toPath(python).wstring();
+		wchar_t buf[MAX_PATH];
+		DWORD n = GetShortPathNameW(wpy.c_str(), buf, MAX_PATH);
+		if (n > 0 && n < MAX_PATH) python = upath::fromPath(fs::path(std::wstring(buf, n)));
 	}
 #endif
 	// Punto 3 (2026-11-07): capturar stdout+stderr en un archivo
@@ -363,8 +358,8 @@ int runTrainScript(const std::vector<std::string>& args, std::string& why_es,
 	std::string cmd = shellQuote(python) + " " + shellQuote(script);
 	for (auto& a : args) cmd += " " + shellQuote(a);
 	if (!out_file.empty())
-		cmd += " > " + shellQuote(out_file.string()) + " 2>&1";
-	int raw = std::system(cmd.c_str());
+		cmd += " > " + shellQuote(upath::fromPath(out_file)) + " 2>&1";
+	int raw = upath::system(cmd);
 	// std::system devuelve en POSIX el estado de espera (código de
 	// salida << 8), no el código en sí: hay que decodificarlo, o el
 	// llamador no puede distinguir "sin base" (2) de "modelo
@@ -409,7 +404,7 @@ int runTrainScript(const std::vector<std::string>& args, std::string& why_es,
 				cmd_corto = cmd_corto.substr(0, 500) + " ...";
 			g_last_train_script_output =
 			    "No se pudo leer la salida del script de entrenamiento.\n"
-			    "Archivo temporal: " + out_file.string() +
+			    "Archivo temporal: " + upath::fromPath(out_file) +
 			    (out_exists ? " (existe pero no se pudo abrir)." :
 			                  " (no se creó: el comando no llegó a ejecutarse o la redirección falló).") +
 			    "\nComando ejecutado: " + cmd_corto +
@@ -487,7 +482,7 @@ OnnxProvider::OnnxProvider(const AiConfig& cfg, const char* argv0) : cfg_(cfg) {
 }
 
 bool OnnxProvider::loadWeights(const std::string& dir) {
-	std::string txt = readFileText((fs::path(dir) / "pesos.json").string());
+	std::string txt = readFileText(upath::fromPath(upath::toPath(dir) / "pesos.json"));
 	if (txt.empty()) return false;
 	if (!jsonFloatArray(txt, "W1", w1_) || w1_.size() != 264 * 64) return false;
 	if (!jsonFloatArray(txt, "b1", b1_) || b1_.size() != 64) return false;
@@ -623,14 +618,14 @@ AiSuggestion OnnxProvider::analyzeFile(const std::string& path,
 	// Localizar el mdat y muestrear ventanas (máx. 64 MB, como el
 	// frame_scanner; una ventana cada 4 KB + en los inicios que el
 	// recorrido por longitud encuentra).
-	std::ifstream f(path, std::ios::binary);
+	std::ifstream f(upath::toPath(path), std::ios::binary);
 	if (!f) {
 		s.confidence = 0.0;
 		s.reason_es = "ONNX: no se pudo abrir el archivo dañado.";
 		return s;
 	}
 	std::error_code ec;
-	uint64_t file_size = (uint64_t)fs::file_size(path, ec);
+	uint64_t file_size = (uint64_t)fs::file_size(upath::toPath(path), ec);
 	if (ec || file_size == 0) {
 		s.confidence = 0.0;
 		s.reason_es = "ONNX: archivo vacío o inexistente.";

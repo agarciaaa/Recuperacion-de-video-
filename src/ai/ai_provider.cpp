@@ -12,6 +12,7 @@
 */
 
 #include "ai_provider.h"
+#include "../upath.h"
 
 #include <cctype>
 #include <cstdlib>
@@ -109,10 +110,10 @@ AiConfig loadAiConfig() {
 
 	// 1) Archivo opcional ~/.config/untrunc/ai.conf (CLAVE=valor).
 	//    No es obligatorio; si no existe, no pasa nada.
-	const char* home = std::getenv("HOME");
-	if (home && *home) {
-		fs::path p = fs::path(home) / ".config" / "untrunc" / "ai.conf";
-		cfg.config_file = p.string();
+	const std::string home = upath::getenv("HOME");
+	if (!home.empty()) {
+		fs::path p = upath::toPath(home) / ".config" / "untrunc" / "ai.conf";
+		cfg.config_file = upath::fromPath(p);
 		std::ifstream f(p);
 		if (f) {
 			std::string line;

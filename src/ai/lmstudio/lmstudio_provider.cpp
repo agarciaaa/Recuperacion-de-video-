@@ -6,6 +6,7 @@
 */
 
 #include "lmstudio_provider.h"
+#include "../../upath.h"
 
 #include <algorithm>
 #include <cctype>
@@ -218,16 +219,16 @@ static bool curlGet(const std::string& url, int timeout_seconds,
 		  << "silent\nshow-error\n";
 	}
 	fs::permissions(curlrc, fs::perms::owner_read | fs::perms::owner_write, ec);
-	std::string cmd = "curl -sS --config " + shellQuote(curlrc.string()) +
-	                  " -o " + shellQuote(resp_file.string()) +
+	std::string cmd = "curl -sS --config " + shellQuote(upath::fromPath(curlrc)) +
+	                  " -o " + shellQuote(upath::fromPath(resp_file)) +
 	                  " " + shellQuote(url) + " " + kStderrNull;
-	FILE* pipe = popen(cmd.c_str(), "r");
+	FILE* pipe = upath::openPipe(cmd, "r");
 	if (!pipe) { fs::remove(curlrc, ec); return false; }
 	char buf[64] = {0};
 	std::string out;
 	size_t n;
 	while ((n = fread(buf, 1, sizeof(buf) - 1, pipe)) > 0) out.append(buf, n);
-	pclose(pipe);
+	upath::closePipe(pipe);
 	fs::remove(curlrc, ec);
 	try { http_code_out = std::stoi(out); } catch (...) { http_code_out = 0; }
 	if (http_code_out < 200 || http_code_out >= 300) return false;
@@ -419,18 +420,18 @@ AiSuggestion LMStudioProvider::analyze(const DiagnosticPacket& packet,
 	int http_code = 0;
 	bool sent = false;
 	for (int attempt = 0; attempt <= cfg_.max_retries; attempt++) {
-		std::string cmd = "curl -sS --config " + shellQuote(curlrc.string()) +
-		                  " --data-binary @" + shellQuote(body_file.string()) +
-		                  " -o " + shellQuote(resp_file.string()) +
+		std::string cmd = "curl -sS --config " + shellQuote(upath::fromPath(curlrc)) +
+		                  " --data-binary @" + shellQuote(upath::fromPath(body_file)) +
+		                  " -o " + shellQuote(upath::fromPath(resp_file)) +
 		                  " " + shellQuote(chatUrl()) +
 		                  " " + kStderrNull;
-		FILE* pipe = popen(cmd.c_str(), "r");
+		FILE* pipe = upath::openPipe(cmd, "r");
 		if (!pipe) break;
 		char buf[64] = {0};
 		std::string out;
 		size_t n;
 		while ((n = fread(buf, 1, sizeof(buf) - 1, pipe)) > 0) out.append(buf, n);
-		int rc = pclose(pipe);
+		int rc = upath::closePipe(pipe);
 		(void)rc;
 		try { http_code = std::stoi(out); } catch (...) { http_code = 0; }
 		if (http_code >= 200 && http_code < 300) { sent = true; break; }

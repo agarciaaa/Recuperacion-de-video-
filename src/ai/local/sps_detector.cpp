@@ -4,6 +4,7 @@
 */
 
 #include "sps_detector.h"
+#include "../../upath.h"
 
 #include <algorithm>
 #include <cmath>
@@ -259,7 +260,7 @@ SpsDetected detectSpsFromRaw(const unsigned char* data, size_t len) {
 
 SpsDetected detectSpsFromFile(const std::string& path, size_t max_scan_bytes) {
 	SpsDetected out;
-	std::ifstream f(path, std::ios::binary);
+	std::ifstream f(upath::toPath(path), std::ios::binary);
 	if (!f) return out;
 	// Localizar el mdat (atomos de nivel superior) y escanear solo
 	// su principio: ahi estan los primeros SPS/PPS de la grabacion.
@@ -271,10 +272,10 @@ SpsDetected detectSpsFromFile(const std::string& path, size_t max_scan_bytes) {
 	f.read(reinterpret_cast<char*>(head.data()), 64);
 	size_t head_n = (size_t)f.gcount();
 	// Recorrido simple de atomos para encontrar el mdat.
-	std::ifstream g(path, std::ios::binary);
+	std::ifstream g(upath::toPath(path), std::ios::binary);
 	uint64_t offset = 0, mdat_off = 0, mdat_len = 0;
 	std::error_code ec;
-	uint64_t file_size = (uint64_t)std::filesystem::file_size(path, ec);
+	uint64_t file_size = (uint64_t)std::filesystem::file_size(upath::toPath(path), ec);
 	if (ec) return out;
 	int guard = 0;
 	while (offset + 8 <= file_size && guard++ < 1000) {

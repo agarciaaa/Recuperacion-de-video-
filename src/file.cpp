@@ -29,6 +29,9 @@
 #include <libgen.h>
 
 #include "common.h"
+#include "upath.h"
+
+#include <filesystem>
 
 using namespace std;
 
@@ -265,8 +268,11 @@ void FileWrite::copyN(FileRead& fin, size_t start_off, size_t n) {
 }
 
 bool isdir(const string& path) {
-	struct stat st;
-	return (stat(path.c_str(), &st) == 0) && (st.st_mode & S_IFDIR);
+	// stat() con char* no entiende UTF-8 en Windows: con una carpeta
+	// "Mis Vídeos" la salida Reparados/ no se veia como carpeta y se
+	// intentaba crear un ARCHIVO con ese nombre ("Permission denied").
+	std::error_code ec;
+	return std::filesystem::is_directory(upath::toPath(path), ec);
 }
 
 string myBasename(string path) {
