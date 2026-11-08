@@ -15,7 +15,10 @@
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <atomic>
+#include <chrono>
 #include <fstream>
+#include <thread>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -24,7 +27,9 @@
 #include "../src/diagnoser.h"
 #include "../src/file.h"
 #include "../src/formatos.h"
+#include "../src/common.h"
 #include "../src/repair_job.h"
+#include "../src/repair_options.h"
 #include "../src/shell_util.h"
 #include "../src/tempfs.h"
 #include "../src/upath.h"
@@ -185,6 +190,78 @@ static void testHonestPercent() {
 	CHECK(attemptIsBetter(14900, 50.0, 33, 99.0));
 	CHECK(attemptIsBetter(1000, 60.0, 1000, 50.0));
 	CHECK(!attemptIsBetter(1000, 50.0, 1000, 50.0));
+}
+
+static void testRepairSession() {
+	g_ignore_unknown = false;
+	g_use_chunk_stats = false;
+	g_dst_path = "";
+	RepairOptions o = RepairOptions::fromGlobals();
+	CHECK(!o.ignore_unknown);
+	o.ignore_unknown = true;
+	o.dst_path = "salida";
+	CHECK(!RepairSession::busy());
+	{
+		RepairSession s(o);
+		CHECK(s.active());
+		CHECK(RepairSession::busy());
+		CHECK(g_ignore_unknown);
+		CHECK_EQ(g_dst_path, std::string("salida"));
+		// Sesion anidada (reintento -s -dyn) sobre una copia.
+		RepairOptions retry = o;
+		retry.use_chunk_stats = true;
+		{
+			RepairSession s2(retry);
+			CHECK(g_use_chunk_stats);
+		}
+		CHECK(!g_use_chunk_stats);  // vuelve a la de la sesion externa
+		CHECK(g_ignore_unknown);
+	}
+	// Al salir, todo como estaba.
+	CHECK(!g_ignore_unknown);
+	CHECK_EQ(g_dst_path, std::string(""));
+	CHECK(!RepairSession::busy());
+
+	// Una excepcion dentro de la sesion tambien restaura.
+	try {
+		RepairSession s(o);
+		throw std::runtime_error("fallo simulado");
+	} catch (const std::exception&) {
+	}
+	CHECK(!g_ignore_unknown);
+
+	// Otro hilo con try_only no espera ni toca nada si hay otra en marcha.
+	{
+		RepairSession s(o);
+		bool other_active = true;
+		std::thread t([&] {
+			RepairOptions other;
+			RepairSession s2(other, true);
+			other_active = s2.active();
+		});
+		t.join();
+		CHECK(!other_active);
+		CHECK(g_ignore_unknown);  // la operacion en curso no se altero
+	}
+
+	// Y una sesion normal en otro hilo ESPERA a que termine la primera.
+	std::atomic<bool> first_done{false};
+	std::atomic<bool> second_saw_first_done{false};
+	std::thread t;
+	{
+		RepairSession s(o);
+		t = std::thread([&] {
+			RepairOptions other;
+			RepairSession s2(other);
+			second_saw_first_done = first_done.load();
+		});
+		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+		first_done = true;
+		// s se destruye al cerrar este bloque; solo entonces entra el hilo.
+	}
+	t.join();
+	CHECK(second_saw_first_done.load());
+	CHECK(!g_ignore_unknown);
 }
 
 static void testTempDirs() {
@@ -438,6 +515,7 @@ int main() {
 	testShellQuote();
 	testFormatDuration();
 	testTempDirs();
+	testRepairSession();
 	testHonestPercent();
 	testPrettyBytes();
 	testReparadosPath();

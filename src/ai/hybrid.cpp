@@ -142,6 +142,15 @@ RescueOutcome rescueWithoutReference(const std::string& damaged_path,
                                      const AiConfig& cfg,
                                      const std::string& profile_override,
                                      const char* argv0) {
+	return rescueWithoutReference(damaged_path, cfg, RepairOptions::fromGlobals(),
+	                              profile_override, argv0);
+}
+
+RescueOutcome rescueWithoutReference(const std::string& damaged_path,
+                                     const AiConfig& cfg,
+                                     const RepairOptions& opts,
+                                     const std::string& profile_override,
+                                     const char* argv0) {
 	RescueOutcome out;
 	out.hybrid = hybridAnalyze(damaged_path, "", cfg, profile_override, argv0);
 	const AiSuggestion& s = out.hybrid.suggestion;
@@ -183,13 +192,12 @@ RescueOutcome rescueWithoutReference(const std::string& damaged_path,
 	// La reparacion clasica con la referencia sintetica necesita
 	// -s (los datos del danado no son exactamente los del video
 	// sintetico). Se activa solo para este intento y se restaura.
-	bool saved_s = g_ignore_unknown;
-	bool saved_dyn = g_use_chunk_stats;
-	g_ignore_unknown = true;
-	g_use_chunk_stats = true;
-	out.repair = repairFileWithAutoRetry(synth.path, damaged_path, true);
-	g_ignore_unknown = saved_s;
-	g_use_chunk_stats = saved_dyn;
+	// Sobre una copia de las opciones de quien llama: las globales
+	// las aplica y restaura la RepairSession de repairFileWithAutoRetry.
+	RepairOptions rescue_opts = opts;
+	rescue_opts.ignore_unknown = true;
+	rescue_opts.use_chunk_stats = true;
+	out.repair = repairFileWithAutoRetry(synth.path, damaged_path, rescue_opts, true);
 	// La referencia sintetica ya no hace falta: se borra su carpeta
 	// temporal unica (antes quedaba en %TEMP%/untrunc-ai-ref para siempre).
 	tempfs::removeDir(upath::toPath(synth.path).parent_path());
@@ -221,7 +229,16 @@ RescueOutcome forcedRescueAttempt(const std::string& damaged_path,
                                   const AiConfig& cfg,
                                   const std::string& profile_override,
                                   const char* argv0) {
-	RescueOutcome out = rescueWithoutReference(damaged_path, cfg, profile_override, argv0);
+	return forcedRescueAttempt(damaged_path, cfg, RepairOptions::fromGlobals(),
+	                           profile_override, argv0);
+}
+
+RescueOutcome forcedRescueAttempt(const std::string& damaged_path,
+                                  const AiConfig& cfg,
+                                  const RepairOptions& opts,
+                                  const std::string& profile_override,
+                                  const char* argv0) {
+	RescueOutcome out = rescueWithoutReference(damaged_path, cfg, opts, profile_override, argv0);
 	const std::string prefijo =
 	    "Intento forzado (el archivo no parecía un MP4/MOV: sin ftyp/moov/mdat; "
 	    "se intentó el rescate sin referencia con perfil/ONNX):\n";
@@ -244,7 +261,7 @@ RescueOutcome forcedRescueAttempt(const std::string& damaged_path,
 	if (vacio) {
 		std::error_code ec;
 		if (!out.repair.output_path.empty())
-			std::filesystem::remove(out.repair.output_path, ec);
+			std::filesystem::remove(upath::toPath(out.repair.output_path), ec);
 		out.ok = false;
 		out.attempted = true;
 		out.error_es = prefijo +

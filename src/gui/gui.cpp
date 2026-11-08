@@ -21,6 +21,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <atomic>
 #include <thread>
 
 extern "C" {
@@ -33,6 +34,7 @@ extern "C" {
 #include "../formatos.h"
 #include "../mp4.h"
 #include "../repair_job.h"
+#include "../repair_options.h"
 #include "../shell_util.h"
 #include "../upath.h"
 #include "../ai/ai_provider.h"
@@ -43,6 +45,9 @@ extern "C" {
 #include <string>
 #include <vector>
 using namespace std;
+
+// Opciones de la pestana Ajustes (definida mas abajo; ver repair_options.h).
+static RepairOptions& guiRepairOptions();
 
 stringstream Gui::buffer_ = stringstream();
 uiWindow* Gui::window_;
@@ -412,57 +417,60 @@ uiControl* Gui::settingsTab() {
 
 	}, nullptr);
 
-	uiCheckboxSetChecked(chk_skip, g_ignore_unknown);
+	uiCheckboxSetChecked(chk_skip, guiRepairOptions().ignore_unknown);
 	uiCheckboxOnToggled(chk_skip, [](uiCheckbox* chk_box, void* spinbox){
 		auto v = uiCheckboxChecked(chk_box);
 		if (v) uiControlEnable(uiControl(spinbox));
 		else uiControlDisable(uiControl(spinbox));
-		g_ignore_unknown = v;
+		guiRepairOptions().ignore_unknown = v;
 
 	}, num_step_size);
 
-	if (!g_ignore_unknown) uiControlDisable(uiControl(num_step_size));
-	uiSpinboxSetValue(num_step_size, Mp4::step_);
+	if (!guiRepairOptions().ignore_unknown) uiControlDisable(uiControl(num_step_size));
+	uiSpinboxSetValue(num_step_size, (int)guiRepairOptions().step);
 	uiSpinboxOnChanged(num_step_size, [](uiSpinbox* spinbox, void* data){
-		Mp4::step_ = uiSpinboxValue(spinbox);
+		guiRepairOptions().step = (uint64_t)uiSpinboxValue(spinbox);
 	}, nullptr);
 
-	uiCheckboxSetChecked(chk_stretch, g_stretch_video);
+	uiCheckboxSetChecked(chk_stretch, guiRepairOptions().stretch_video);
 	uiCheckboxOnToggled(chk_stretch, [](uiCheckbox* chk_box, void* data){
 		auto v = uiCheckboxChecked(chk_box);
 		if (v) msgBox("Esta función está en fase beta, puede que no funcione.");
-		g_stretch_video = v;
+		guiRepairOptions().stretch_video = v;
 
 	}, nullptr);
 
-	uiCheckboxSetChecked(chk_keep_unknown, g_dont_exclude);
+	uiCheckboxSetChecked(chk_keep_unknown, guiRepairOptions().dont_exclude);
 	uiCheckboxOnToggled(chk_keep_unknown, [](uiCheckbox* chk_box, void* data){
 		auto v = uiCheckboxChecked(chk_box);
-		g_dont_exclude = v;
+		guiRepairOptions().dont_exclude = v;
 
 	}, nullptr);
 
-	uiCheckboxSetChecked(chk_use_dyn, g_use_chunk_stats);
+	uiCheckboxSetChecked(chk_use_dyn, guiRepairOptions().use_chunk_stats);
 	uiCheckboxOnToggled(chk_use_dyn, [](uiCheckbox* chk_box, void* data){
 		auto v = uiCheckboxChecked(chk_box);
-		g_use_chunk_stats = v;
+		guiRepairOptions().use_chunk_stats = v;
 
 	}, nullptr);
 
-	uiCheckboxSetChecked(chk_rsv_ben, g_rsv_ben_mode);
+	uiCheckboxSetChecked(chk_rsv_ben, guiRepairOptions().rsv_ben_mode);
 	uiCheckboxOnToggled(chk_rsv_ben, [](uiCheckbox* chk_box, void* data){
 		auto v = uiCheckboxChecked(chk_box);
-		g_rsv_ben_mode = v;
+		guiRepairOptions().rsv_ben_mode = v;
 
 	}, nullptr);
 
-	string s_max_partsize = to_string(g_max_partsize);
+	string s_max_partsize = to_string(guiRepairOptions().max_partsize);
 	uiEntrySetText(num_max_partsize, s_max_partsize.c_str());
 	uiEntryOnChanged(num_max_partsize, [](uiEntry *entry, void *data){
 		try {
 			string s = uiEntryText(entry);
 			if (s.empty()) s = "0";
-			parseMaxPartsize(s);
+			// Igual que parseMaxPartsize(), pero sobre las opciones
+			// de la GUI y no sobre las globales.
+			guiRepairOptions().max_partsize_default = 0;
+			if (s != "f") guiRepairOptions().max_partsize = (unsigned)parseByteStr(s);
 		}
 		CATCH_THEM(uiEntrySetText(entry, "0"));
 	}, nullptr);
@@ -470,10 +478,32 @@ uiControl* Gui::settingsTab() {
 	return uiControl(v_box);
 }
 
+// Opciones de reparacion de la GUI (pestana Ajustes). Las casillas
+// escriben AQUI, no en las globales del nucleo: cada operacion toma
+// una foto al pulsar su boton (repair_options.h), asi que cambiar un
+// ajuste a mitad de una reparacion ya no la altera.
+static RepairOptions& guiRepairOptions() {
+	static RepairOptions opts = RepairOptions::fromGlobals();
+	return opts;
+}
+
+// Barra de progreso de la pestana Reparar desde el hilo de trabajo:
+// libui solo admite cambios de interfaz en el hilo principal, asi que
+// se encola (y solo cuando el valor cambia, para no saturar la cola).
+static void repairProgressQueued(void* data) {
+	int* p = static_cast<int*>(data);
+	Gui::Repair::onProgress(*p);
+	delete p;
+}
+static void repairProgressFromWorker(int percentage) {
+	static std::atomic<int> last{-1};
+	if (last.exchange(percentage) == percentage) return;
+	uiQueueMain(repairProgressQueued, new int(percentage));
+}
+
 #define defineFileForAnalyze() \
 	current_text_entry_ = Analyze::text_entry_; \
 	uiMultilineEntrySetText(current_text_entry_, ""); \
-	g_onProgress = Gui::Analyze::onProgress; \
 	string file_ok = uiEntryText(Analyze::entry_ok_); \
 	if (file_ok.empty()) { \
 		msgBoxError("Falta el archivo: elige el vídeo de referencia (sano)."); \
@@ -484,6 +514,14 @@ uiControl* Gui::settingsTab() {
 
 #define defineMp4ForAnalyze() \
 	defineFileForAnalyze(); \
+	RepairOptions analyze_opts_ = guiRepairOptions(); \
+	analyze_opts_.on_progress = Gui::Analyze::onProgress; \
+	/* Sin esperar: en el hilo de la interfaz no se puede bloquear. */ \
+	RepairSession analyze_session_(analyze_opts_, true); \
+	if (!analyze_session_.active()) { \
+		msgBox("Hay una reparación en marcha. Espera a que termine para analizar."); \
+		return; \
+	} \
 	Mp4 mp4; \
 	try { \
 		g_mp4 = &mp4; \
@@ -1798,12 +1836,13 @@ void Gui::Assistant::startBatch(uiButton* button, void* data) {
 	std::string profileCopy = profile;
 	// Punto 9: se anota que trabajo es, para el aviso de arriba.
 	Gui::thread_desc_ = "el lote del Asistente";
-	Gui::thread_ = new std::thread([files, refCopy, modeCopy = con_ref ? 0 : 1, profileCopy, forzarCopy = forzar_checked]() {
+	// Foto de los Ajustes al pulsar: cambiarlos durante el lote no
+	// lo altera. El progreso real del nucleo va a la barra del
+	// Asistente solo mientras dura cada reparacion (RepairSession).
+	RepairOptions opts = guiRepairOptions();
+	opts.on_progress = Gui::Assistant::onProgress;
+	Gui::thread_ = new std::thread([files, refCopy, modeCopy = con_ref ? 0 : 1, profileCopy, forzarCopy = forzar_checked, opts]() {
 		AiConfig cfg = loadAiConfig();
-		// Progreso real: el nucleo informa por g_onProgress.
-		// Se guarda el anterior (lo usa Analizar) y se restaura.
-		void (*prevProgress)(int) = g_onProgress;
-		g_onProgress = Gui::Assistant::onProgress;
 		total_ = (int)files.size();
 		actual_ = 0;
 		last_global_ = -1;
@@ -1840,7 +1879,7 @@ void Gui::Assistant::startBatch(uiButton* button, void* data) {
 					auto hr = hybridAnalyze(files[i], refCopy, cfgFile, g_ai_local_profile, g_exe_argv0);
 					std::cout << "\n" << hr.summary_es << "\n";
 				}
-				RepairOutcome o = repairFileWithAutoRetry(refCopy, files[i], true);
+				RepairOutcome o = repairFileWithAutoRetry(refCopy, files[i], opts, true);
 				// Punto 4: si el pre-vuelo rechazo el danado por no
 				// parecer MP4/MOV y "Intentar de todos modos" esta
 				// marcado, se intenta el rescate forzado en vez de
@@ -1850,7 +1889,7 @@ void Gui::Assistant::startBatch(uiButton* button, void* data) {
 				if (!o.ok && !o.skipped && forzarCopy &&
 				    (o.code == DiagCode::BadNoFtyp || o.code == DiagCode::BadNoMdat ||
 				     o.code == DiagCode::BadCabeceraDaniada)) {
-					RescueOutcome r = forcedRescueAttempt(files[i], cfg, profileCopy, g_exe_argv0);
+					RescueOutcome r = forcedRescueAttempt(files[i], cfg, opts, profileCopy, g_exe_argv0);
 					forced_tried = true;
 					informe += r.summary_es;
 					informe += "\n";
@@ -1873,7 +1912,7 @@ void Gui::Assistant::startBatch(uiButton* button, void* data) {
 				// hibrida. Si no detecta resolucion, no inventa
 				// nada: error_es explica que hace falta una
 				// referencia sana real.
-				RescueOutcome r = rescueWithoutReference(files[i], cfg, profileCopy, g_exe_argv0);
+				RescueOutcome r = rescueWithoutReference(files[i], cfg, opts, profileCopy, g_exe_argv0);
 				informe += r.summary_es;
 				informe += "\n";
 				RepairOutcome o;
@@ -1907,7 +1946,6 @@ void Gui::Assistant::startBatch(uiButton* button, void* data) {
 			}
 			Gui::Assistant::onProgress(100);
 		}
-		g_onProgress = prevProgress;
 		chkHiddenWarnings();
 		salidas_ = salidas;
 		preview_index_ = 0;
@@ -2223,8 +2261,11 @@ uiControl* Gui::analyzeTab() {
 		Analyze::onProgress(0);
 		// Punto 9: se anota que trabajo es, para el aviso de arriba.
 		Gui::thread_desc_ = "la búsqueda de átomos de la pestaña Analizar";
-		thread_ = new thread([](const string& file){
+		RepairOptions atoms_opts = guiRepairOptions();
+		atoms_opts.on_progress = Analyze::onProgress;
+		thread_ = new thread([](const string& file, const RepairOptions& opts){
 			try {
+				RepairSession session(opts);
 				Atom::findAtomNames(file);
 				Analyze::onProgress(100);
 			}
@@ -2236,7 +2277,7 @@ uiControl* Gui::analyzeTab() {
 			// reparación en marcha" hasta cerrar el programa.
 			ASYNC(setDisabled, false);
 			ASYNC(clearThreadQueued, nullptr);
-		}, file_ok);
+		}, file_ok, atoms_opts);
 	}, NULL);
 
 	Analyze::progressbar_ = uiNewProgressBar();
@@ -2440,7 +2481,13 @@ void Gui::startRepair(uiButton* b, void* data) {
 	Repair::onProgress(0);
 	// Punto 9: se anota que trabajo es, para el aviso de arriba.
 	Gui::thread_desc_ = "la reparación de la pestaña Reparar";
-	thread_ = new thread([](const string& file_ok, const string& file_bad, bool forced_rescue){
+	// Foto de los Ajustes al pulsar (ver guiRepairOptions). Antes esta
+	// pestana no registraba su barra de progreso: el nucleo movia la
+	// ultima que hubiera quedado puesta (la de Analizar).
+	RepairOptions opts = guiRepairOptions();
+	opts.on_progress = repairProgressFromWorker;
+	thread_ = new thread([](const string& file_ok, const string& file_bad, bool forced_rescue,
+	                        const RepairOptions& opts){
 		try {
 			if (forced_rescue) {
 				// Punto 8: rescate forzado sin referencia
@@ -2448,7 +2495,7 @@ void Gui::startRepair(uiButton* b, void* data) {
 				// encuentra video, lo dice con honestidad y no
 				// deja un archivo vacio enganoso.
 				AiConfig cfg = loadAiConfig();
-				RescueOutcome r = forcedRescueAttempt(file_bad, cfg, g_ai_local_profile, g_exe_argv0);
+				RescueOutcome r = forcedRescueAttempt(file_bad, cfg, opts, g_ai_local_profile, g_exe_argv0);
 				chkHiddenWarnings();
 				Repair::onProgress(100);
 				cout << "\n" << r.summary_es << "\n";
@@ -2483,7 +2530,7 @@ void Gui::startRepair(uiButton* b, void* data) {
 				// Fase 1 (1.3/1.4/1.6): reintento automatico con -s,
 				// salida a Reparados/ y resumen en espanol.
 				// La logica es la misma que usa el CLI (repair_job.cpp).
-				auto outcome = repairFileWithAutoRetry(file_ok, file_bad, true);
+				auto outcome = repairFileWithAutoRetry(file_ok, file_bad, opts, true);
 				chkHiddenWarnings();
 				Repair::onProgress(100);
 				cout << "\n" << outcome.message_es << "\n";
@@ -2503,7 +2550,7 @@ void Gui::startRepair(uiButton* b, void* data) {
 		// una reparación en marcha" hasta cerrar el programa.
 		ASYNC(setDisabled, false);
 		ASYNC(clearThreadQueued, nullptr);
-	}, file_ok, file_bad, forced_rescue);
+	}, file_ok, file_bad, forced_rescue, opts);
 }
 
 void Gui::Repair::onProgress(int percentage) {

@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "diagnoser.h"
+#include "repair_options.h"
 
 struct RepairOutcome {
 	bool ok = false;
@@ -51,6 +52,15 @@ struct RepairOutcome {
 //   (nombre de Untrunc original), salvo que el usuario haya dado
 //   -dst (entonces se respeta -dst).
 // - Nunca modifica el archivo original ni el de referencia.
+//
+// Las opciones (-s, -dyn, -dst...) son una FOTO (RepairOptions)
+// tomada por quien llama; la funcion las aplica al nucleo dentro de
+// una RepairSession y las restaura al terminar. La version sin
+// opciones toma la foto de las globales (CLI).
+RepairOutcome repairFileWithAutoRetry(const std::string& ref_path,
+                                      const std::string& corrupt_path,
+                                      const RepairOptions& opts,
+                                      bool allow_retry = true);
 RepairOutcome repairFileWithAutoRetry(const std::string& ref_path,
                                       const std::string& corrupt_path,
                                       bool allow_retry = true);
@@ -58,6 +68,11 @@ RepairOutcome repairFileWithAutoRetry(const std::string& ref_path,
 // Repara VARIOS archivos con la misma referencia (lote, 1.4).
 // No se detiene si uno falla: sigue con el siguiente y lo anota
 // en el informe.
+std::vector<std::pair<std::string, RepairOutcome>> repairBatch(
+    const std::string& ref_path,
+    const std::vector<std::string>& corrupt_paths,
+    const RepairOptions& opts,
+    bool allow_retry = true);
 std::vector<std::pair<std::string, RepairOutcome>> repairBatch(
     const std::string& ref_path,
     const std::vector<std::string>& corrupt_paths,

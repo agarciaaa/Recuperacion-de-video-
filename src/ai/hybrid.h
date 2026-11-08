@@ -69,6 +69,12 @@ RescueOutcome rescueWithoutReference(const std::string& damaged_path,
                                      const AiConfig& cfg,
                                      const std::string& profile_override = "",
                                      const char* argv0 = nullptr);
+// Igual, con una foto de opciones explicita (GUI): ver repair_options.h.
+RescueOutcome rescueWithoutReference(const std::string& damaged_path,
+                                     const AiConfig& cfg,
+                                     const RepairOptions& opts,
+                                     const std::string& profile_override,
+                                     const char* argv0);
 
 // Intento forzado ("Intentar de todos modos", reparaciones
 // 2026-11-07, punto 4): para archivos que el preflight rechaza
@@ -86,5 +92,10 @@ RescueOutcome forcedRescueAttempt(const std::string& damaged_path,
                                   const AiConfig& cfg,
                                   const std::string& profile_override = "",
                                   const char* argv0 = nullptr);
+RescueOutcome forcedRescueAttempt(const std::string& damaged_path,
+                                  const AiConfig& cfg,
+                                  const RepairOptions& opts,
+                                  const std::string& profile_override,
+                                  const char* argv0);
 
 #endif // AI_HYBRID_H

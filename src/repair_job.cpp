@@ -111,6 +111,14 @@ std::string describeMode(bool with_s, bool with_dyn) {
 RepairOutcome repairFileWithAutoRetry(const std::string& ref_path,
                                       const std::string& corrupt_path,
                                       bool allow_retry) {
+	return repairFileWithAutoRetry(ref_path, corrupt_path, RepairOptions::fromGlobals(),
+	                               allow_retry);
+}
+
+RepairOutcome repairFileWithAutoRetry(const std::string& ref_path,
+                                      const std::string& corrupt_path,
+                                      const RepairOptions& opts,
+                                      bool allow_retry) {
 	RepairOutcome out;
 
 	// 1.1: pre-vuelo antes de tocar el nucleo.
@@ -124,21 +132,23 @@ RepairOutcome repairFileWithAutoRetry(const std::string& ref_path,
 	}
 
 	// 1.4: salida a Reparados/, salvo -dst explicito del usuario.
-	// g_dst_path solo tiene valor si el usuario dio -dst en el CLI.
-	const std::string prev_dst = g_dst_path;
-	const bool user_dst = !prev_dst.empty();
-	std::string reparados_dir;
-	if (!user_dst) {
-		reparados_dir = ensureReparadosDir(corrupt_path);
-		if (!reparados_dir.empty()) g_dst_path = reparados_dir;
+	// Se trabaja sobre una COPIA de las opciones: nada de esto toca
+	// las de quien llama ni las de otra operacion.
+	RepairOptions run = opts;
+	if (run.dst_path.empty()) {
+		std::string reparados_dir = ensureReparadosDir(corrupt_path);
+		if (!reparados_dir.empty()) run.dst_path = reparados_dir;
 	}
+	// Desde aqui el nucleo trabaja con `run`; al salir (por cualquier
+	// return o excepcion) se restauran las globales.
+	RepairSession session(run);
 
 	// Si ya existe la salida y esta -skip, no se repara: se anota y
 	// se sigue (en lote no se puede hacer exit(0) como hacia repair()).
 	// La ruta esperada se calcula con Mp4::getPathRepaired() para
 	// respetar el nombre real de Untrunc ("<nombre>.mp4_fixed.mp4",
 	// con sufijo -s/-dyn si el usuario dio esas opciones).
-	if (g_skip_existing) {
+	if (run.skip_existing) {
 		Mp4 probe;
 		std::string expected = probe.getPathRepaired(ref_path, corrupt_path);
 		if (FileRead::alreadyExists(expected)) {
@@ -148,13 +158,12 @@ RepairOutcome repairFileWithAutoRetry(const std::string& ref_path,
 			               "existentes (-skip): " + expected + "\n"
 			               "No se ha tocado el original.";
 			out.message_es = out.error_es;
-			g_dst_path = prev_dst;
 			return out;
 		}
 	}
 
-	const bool user_s = g_ignore_unknown;
-	const bool user_dyn = g_use_chunk_stats;
+	const bool user_s = run.ignore_unknown;
+	const bool user_dyn = run.use_chunk_stats;
 
 	Attempt first = runAttempt(ref_path, corrupt_path);
 	if (first.threw) {
@@ -163,7 +172,6 @@ RepairOutcome repairFileWithAutoRetry(const std::string& ref_path,
 		               "Error: " + first.error + "\n"
 		               "El archivo original no se ha modificado.";
 		out.message_es = out.error_es;
-		g_dst_path = prev_dst;
 		return out;
 	}
 
@@ -187,13 +195,14 @@ RepairOutcome repairFileWithAutoRetry(const std::string& ref_path,
 	int64_t retry_duration_ms = 0;
 	if (allow_retry && !user_s && first.pct < 90.0) {
 		out.retried = true;
-		const bool saved_s = g_ignore_unknown;
-		const bool saved_dyn = g_use_chunk_stats;
-		g_ignore_unknown = true;
-		g_use_chunk_stats = true;
-		Attempt retry = runAttempt(ref_path, corrupt_path);
-		g_ignore_unknown = saved_s;
-		g_use_chunk_stats = saved_dyn;
+		RepairOptions retry_opts = run;
+		retry_opts.ignore_unknown = true;
+		retry_opts.use_chunk_stats = true;
+		Attempt retry;
+		{
+			RepairSession retry_session(retry_opts);  // sesion anidada
+			retry = runAttempt(ref_path, corrupt_path);
+		}
 		if (!retry.threw) {
 			retry_duration_ms = retry.duration_ms;
 			out.retry_percent = retry.pct;
@@ -240,7 +249,6 @@ RepairOutcome repairFileWithAutoRetry(const std::string& ref_path,
 		    "la MISMA configuración que el vídeo dañado y úsalo como referencia.\n"
 		    "El archivo original no se ha modificado.";
 		out.message_es = out.error_es;
-		g_dst_path = prev_dst;
 		return out;
 	}
 
@@ -268,7 +276,6 @@ RepairOutcome repairFileWithAutoRetry(const std::string& ref_path,
 		ss << "\n  (También se guardó el otro intento en: " << other_output << ")";
 	out.message_es = ss.str();
 
-	g_dst_path = prev_dst;
 	return out;
 }
 
@@ -276,11 +283,20 @@ std::vector<std::pair<std::string, RepairOutcome>> repairBatch(
     const std::string& ref_path,
     const std::vector<std::string>& corrupt_paths,
     bool allow_retry) {
+	return repairBatch(ref_path, corrupt_paths, RepairOptions::fromGlobals(), allow_retry);
+}
+
+std::vector<std::pair<std::string, RepairOutcome>> repairBatch(
+    const std::string& ref_path,
+    const std::vector<std::string>& corrupt_paths,
+    const RepairOptions& opts,
+    bool allow_retry) {
 	std::vector<std::pair<std::string, RepairOutcome>> results;
 	for (const auto& corrupt : corrupt_paths) {
 		// Cada archivo es independiente: si uno falla, el siguiente
-		// se intenta igual. repairFileWithAutoRetry no lanza.
-		results.emplace_back(corrupt, repairFileWithAutoRetry(ref_path, corrupt, allow_retry));
+		// se intenta igual. repairFileWithAutoRetry no lanza. Todos
+		// usan la misma foto de opciones (opts).
+		results.emplace_back(corrupt, repairFileWithAutoRetry(ref_path, corrupt, opts, allow_retry));
 	}
 	return results;
 }
