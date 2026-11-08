@@ -24,6 +24,7 @@
 #define AI_HYBRID_H
 
 #include <string>
+#include <vector>
 
 #include "ai_provider.h"
 #include "../repair_job.h"
@@ -46,6 +47,10 @@ struct RescueOutcome {
 	bool attempted = false;        // se intento reparar
 	bool ok = false;               // la reparacion clasica termino
 	bool synthetic_ref_used = false;
+	// Plantilla de camara real usada (id), si alguna funciono, y una
+	// linea por cada plantilla probada (ver plantillas.h).
+	std::string plantilla_usada;
+	std::vector<std::string> plantillas_probadas;
 	std::string synthetic_ref_path;  // temporal; borrar al terminar
 	RepairOutcome repair;          // resultado de Fase 1 (si se intento)
 	std::string error_es;          // si no se pudo intentar

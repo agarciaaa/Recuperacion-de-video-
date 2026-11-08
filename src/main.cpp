@@ -28,6 +28,8 @@
 #include "atom.h"
 #include "common.h"
 #include "diagnoser.h"
+#include "plantillas.h"
+#include "repair_options.h"
 #include "formatos.h"
 #include "repair_job.h"
 #include "ai/ai_provider.h"
@@ -312,9 +314,19 @@ void usage() {
 	     << "              la IA externa.\n"
 	     << "--perfil <nombre> - fuerza un perfil de camara (ver profiles/profiles.json),\n"
 	     << "              p. ej. --perfil iphone_h264_1080p30\n"
-	     << "--sin-referencia <danado> - rescate sin referencia: la IA local detecta los\n"
-	     << "              parametros (SPS, resolucion, fps), genera una referencia sintetica\n"
-	     << "              con ffmpeg y repara con ella. El video nunca sale de tu PC.\n"
+	     << "--sin-referencia <danado> - rescate sin referencia. Primero prueba las\n"
+	     << "              plantillas de camara guardadas (cabeceras reales, ver abajo); si\n"
+	     << "              ninguna sirve, la IA local detecta los parametros (SPS,\n"
+	     << "              resolucion, fps), genera una referencia sintetica con ffmpeg y\n"
+	     << "              repara con ella. El video nunca sale de tu PC.\n"
+	     << "\n"
+	     << "Plantillas de camara (cabecera real de cada modelo, sin imagen ni sonido):\n"
+	     << "--crear-plantilla <video_sano> [nombre] - guarda la cabecera de un video SANO\n"
+	     << "              corto (10-15 s) de la misma camara y configuracion. Se quitan\n"
+	     << "              fechas, GPS y metadatos personales. Pesa unos KB.\n"
+	     << "--listar-plantillas - muestra las plantillas encontradas y donde buscarlas.\n"
+	     << "--plantilla <nombre|archivo> <danado> - repara usando esa plantilla como\n"
+	     << "              referencia (equivale a tener el video sano a mano).\n"
 	     << "\n"
 	     << "LM Studio (Qwen local, 100% en localhost, sin internet):\n"
 	     << "--ia-lmstudio - consulta ADEMAS a Qwen en LM Studio (localhost:1234).\n"
@@ -445,6 +457,8 @@ int main(int argc, char *argv[]) {
 	int arg_dst = -1;
 	int arg_mp = -1;
 	int arg_perfil = -1;
+	int arg_plantilla = -1;
+	std::string plantilla_arg;
 	int arg_lmstudio_endpoint = -1;
 	int arg_lmstudio_model = -1;
 
@@ -501,6 +515,45 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
+	// Plantillas de camara: crear y listar no necesitan nada mas.
+	for (int j = 1; j < argc; j++) {
+		std::string a = argv[j];
+		if (a == "--crear-plantilla") {
+			if (j + 1 >= argc) {
+				cerr << "Uso: untrunc --crear-plantilla <video_sano.mp4> [nombre]\n";
+				return 1;
+			}
+			std::string nombre = (j + 2 < argc && argv[j + 2][0] != '-') ? argv[j + 2] : "";
+			plantillas::ResultadoCrear r = plantillas::crearPlantilla(argv[j + 1], "", nombre);
+			if (!r.ok) {
+				cerr << r.error_es << "\n";
+				return 1;
+			}
+			cout << "Plantilla creada: " << r.path << "\n"
+			     << "  " << r.info.resumenEs() << "\n"
+			     << "  Tamaño: " << r.info.file_bytes << " bytes (sin imagen ni sonido; "
+			     << r.atomos_limpiados << " bloques de metadatos vaciados).\n"
+			     << "Úsala con:\n"
+			     << "  untrunc --plantilla " << r.info.id << " <dañado.mp4>\n"
+			     << "o deja que --sin-referencia la elija sola.\n";
+			return 0;
+		}
+		if (a == "--listar-plantillas") {
+			auto lista = plantillas::listarPlantillas(argv[0]);
+			cout << "Carpetas donde se buscan plantillas (" << plantillas::kExtension << "):\n";
+			for (const auto& d : plantillas::carpetasBusqueda(argv[0])) cout << "  " << d << "\n";
+			if (lista.empty()) {
+				cout << "No hay plantillas. Crea una con:\n"
+				     << "  untrunc --crear-plantilla <video_sano.mp4> [nombre]\n";
+				return 0;
+			}
+			cout << "Plantillas:\n";
+			for (const auto& p : lista)
+				cout << "  " << p.id << " - " << p.resumenEs() << "\n    " << p.path << "\n";
+			return 0;
+		}
+	}
+
 	int i = 1;
 	for (; i < argc; i++) {
 		string arg = argv[i];
@@ -510,6 +563,7 @@ int main(int argc, char *argv[]) {
 		if (arg_dst == kExpectArg) {g_dst_path = arg; arg_dst = -1; continue;}
 		if (arg_mp == kExpectArg) {parseMaxPartsize(arg); arg_mp = -1; continue;}
 		if (arg_perfil == kExpectArg) {profile_override = arg; arg_perfil = -1; continue;}
+		if (arg_plantilla == kExpectArg) {plantilla_arg = arg; arg_plantilla = -1; continue;}
 		if (arg_onnx_modelo == kExpectArg) {onnx_model_override = arg; arg_onnx_modelo = -1; continue;}
 		if (arg_lmstudio_endpoint == kExpectArg) {lmstudio_endpoint_override = arg; arg_lmstudio_endpoint = -1; continue;}
 		if (arg_lmstudio_model == kExpectArg) {lmstudio_model_override = arg; arg_lmstudio_model = -1; continue;}
@@ -531,6 +585,7 @@ int main(int argc, char *argv[]) {
 			else if (a == "-solo-diagnostico") solo_diag = true;
 			else if (a == "-sin-referencia") no_ref = true;
 			else if (a == "-perfil") arg_perfil = kExpectArg;
+			else if (a == "-plantilla") arg_plantilla = kExpectArg;
 			else if (a == "i") show_info = true;
 			else if (a == "it") show_tracks = true;
 			else if (a == "ia") show_atoms = true;
@@ -655,8 +710,44 @@ int main(int argc, char *argv[]) {
 		return pkt.valid ? 0 : 1;
 	}
 
-	// Fase 2: rescate sin referencia (IA local -> referencia
-	// sintetica -> reparacion clasica). El video nunca sale.
+	// Reparar con una plantilla de camara concreta.
+	if (!plantilla_arg.empty()) {
+		if (!corrupt.empty()) {
+			cerr << "Error: --plantilla solo necesita el vídeo dañado.\n"
+			     << "Uso: untrunc --plantilla <nombre|archivo.plantilla> <dañado.mp4>\n";
+			return 1;
+		}
+		std::string ruta = plantillas::resolverPlantilla(plantilla_arg, argv[0]);
+		if (ruta.empty()) {
+			cerr << "No se encontró la plantilla '" << plantilla_arg << "'. "
+			     << "Mira las disponibles con --listar-plantillas.\n";
+			return 1;
+		}
+		plantillas::InfoPlantilla info = plantillas::leerPlantilla(ruta);
+		if (!info.ok) {
+			cerr << "La plantilla " << ruta << " no es válida: " << info.error_es << "\n";
+			return 1;
+		}
+		auto r = plantillas::repararConPlantillas({info}, ok, RepairOptions::fromGlobals(), 1);
+		if (!r.ok) {
+			cerr << "No se pudo recuperar nada útil con la plantilla '" << info.id << "' ("
+			     << info.resumenEs() << ")."
+			     << (r.repair.error_es.empty() ? "" : "\n" + r.repair.error_es) << "\n"
+			     << "¿Es de la misma cámara y con la misma configuración (resolución, fps)?\n";
+			chkHiddenWarnings();
+			return 1;
+		}
+		cout << "Reparado con la plantilla '" << info.id << "' (" << info.resumenEs() << ").\n"
+		     << "Recuperado: " << (int)r.repair.recovered_percent << "% del vídeo | Duración: "
+		     << formatDurationEs(r.repair.duration_ms) << "\n"
+		     << "Salida: " << r.repair.output_path << "\n"
+		     << "El original no se ha modificado.\n";
+		chkHiddenWarnings();
+		return 0;
+	}
+
+	// Fase 2: rescate sin referencia (plantillas de camara -> IA
+	// local + referencia sintetica -> reparacion clasica).
 	if (no_ref) {
 		if (!corrupt.empty()) {
 			cerr << "Error: --sin-referencia solo necesita el vídeo dañado.\n"
@@ -696,7 +787,7 @@ int main(int argc, char *argv[]) {
 		cout << rescue.summary_es << "\n";
 		if (rescue.hybrid.onnx_consulted)
 			cout << "Modelo ONNX consultado (local, entrenado en esta PC).\n";
-		if (!rescue.synthetic_ref_path.empty())
+		if (rescue.plantilla_usada.empty() && !rescue.synthetic_ref_path.empty())
 			cout << "Referencia sintética temporal: " << rescue.synthetic_ref_path << "\n";
 		chkHiddenWarnings();
 		return rescue.ok ? 0 : 1;

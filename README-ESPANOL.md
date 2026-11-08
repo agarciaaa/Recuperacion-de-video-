@@ -73,7 +73,12 @@ fps, mismo códec — y la aplica a los datos del vídeo dañado.
 # Lote con la misma referencia:
 ./untrunc --lote referencia.mp4 danado1.mp4 danado2.mp4
 
-# Rescate sin referencia, con perfil:
+# Plantilla de tu cámara (una vez, con un clip sano corto de la misma cámara):
+./untrunc --crear-plantilla clip_sano.mp4 mi_camara_1080p30
+./untrunc --plantilla mi_camara_1080p30 danado.mp4
+
+# Rescate sin referencia (prueba primero tus plantillas):
+./untrunc --sin-referencia danado.mp4
 ./untrunc --sin-referencia --perfil generico_h264_1080p30 danado.mp4
 
 # Ver qué texto se enviaría a una IA, sin enviar nada:

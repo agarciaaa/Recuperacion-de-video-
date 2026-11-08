@@ -15,7 +15,9 @@
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <algorithm>
 #include <atomic>
+#include <iterator>
 #include <chrono>
 #include <fstream>
 #include <thread>
@@ -30,6 +32,7 @@
 #include "../src/common.h"
 #include "../src/repair_job.h"
 #include "../src/repair_options.h"
+#include "../src/plantillas.h"
 #include "../src/shell_util.h"
 #include "../src/tempfs.h"
 #include "../src/upath.h"
@@ -262,6 +265,144 @@ static void testRepairSession() {
 	t.join();
 	CHECK(second_saw_first_done.load());
 	CHECK(!g_ignore_unknown);
+}
+
+// MP4 "de camara" con metadatos personales, para las plantillas.
+static Bytes fullBox(const char* type, uint8_t version, const Bytes& rest) {
+	Bytes p = {version, 0, 0, 0};
+	p.insert(p.end(), rest.begin(), rest.end());
+	return atom(type, p);
+}
+
+static Bytes cameraMp4(const char* codec, uint16_t w, uint16_t h) {
+	Bytes mvhd_rest(96, 0);
+	std::fill(mvhd_rest.begin(), mvhd_rest.begin() + 4, 0x11);      // creacion
+	std::fill(mvhd_rest.begin() + 4, mvhd_rest.begin() + 8, 0x12);  // modificacion
+	Bytes tkhd_rest(80, 0);
+	std::fill(tkhd_rest.begin(), tkhd_rest.begin() + 8, 0x13);
+	Bytes mdhd_rest(28, 0);                                          // v1: 8+8 fechas
+	std::fill(mdhd_rest.begin(), mdhd_rest.begin() + 16, 0x14);
+	Bytes hdlr_rest = {0, 0, 0, 0, 'v', 'i', 'd', 'e'};
+	hdlr_rest.resize(hdlr_rest.size() + 13, 0);
+	Bytes entry;
+	put32(entry, 86);
+	entry.insert(entry.end(), codec, codec + 4);
+	entry.resize(entry.size() + 6 + 2 + 16, 0);
+	entry.push_back((unsigned char)(w >> 8)); entry.push_back((unsigned char)w);
+	entry.push_back((unsigned char)(h >> 8)); entry.push_back((unsigned char)h);
+	entry.resize(86, 0);
+	Bytes stsd_rest = {0, 0, 0, 1};
+	stsd_rest.insert(stsd_rest.end(), entry.begin(), entry.end());
+	const std::string gps = "+40.4168-003.7038/";
+	const char xyz[4] = {(char)0xA9, 'x', 'y', 'z'};
+	Bytes trak = atom("trak", concat({
+	    fullBox("tkhd", 0, tkhd_rest),
+	    atom("mdia", concat({
+	        fullBox("mdhd", 1, mdhd_rest),
+	        fullBox("hdlr", 0, hdlr_rest),
+	        atom("minf", atom("stbl", fullBox("stsd", 0, stsd_rest)))}))}));
+	Bytes moov = atom("moov", concat({
+	    fullBox("mvhd", 0, mvhd_rest), trak,
+	    atom("udta", atom(xyz, Bytes(gps.begin(), gps.end()))),
+	    atom("meta", Bytes({'s', 'e', 'c', 'r', 'e', 't', 'o'}))}));
+	Bytes mdat_payload(5000, 0x5A);
+	return concat({ftyp(), atom("free", Bytes(8, 0x7F)),
+	               atom("uuid", Bytes({'s', 'e', 'r', 'i', 'a', 'l', '1', '2', '3'})),
+	               atom("mdat", mdat_payload), moov});
+}
+
+static bool contains(const Bytes& hay, const std::string& needle) {
+	return std::search(hay.begin(), hay.end(), needle.begin(), needle.end()) != hay.end();
+}
+
+static Bytes readAll(const std::string& path) {
+	std::ifstream f(upath::toPath(path), std::ios::binary);
+	return Bytes(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+}
+
+static void testPlantillas(const TempDir& dir) {
+	using namespace plantillas;
+	const Bytes original = cameraMp4("avc1", 1920, 1080);
+	const std::string sano = dir.write("Cámara ñ/sano.mp4", original);
+
+	InfoPlantilla vi = leerPlantilla(sano);
+	CHECK(vi.ok);
+	CHECK_EQ(vi.brand, std::string("isom"));
+	CHECK_EQ(vi.video_codec, std::string("avc1"));
+	CHECK_EQ(vi.width, 1920);
+	CHECK_EQ(vi.height, 1080);
+	CHECK_EQ(vi.mdat_bytes, (uint64_t)5000);
+
+	// Escribir: pequena y sin datos personales.
+	const std::string tpl = dir.path("Cámara ñ/mi cámara.plantilla");
+	int limpiados = -1;
+	std::string err;
+	CHECK(escribirPlantilla(sano, tpl, limpiados, err));
+	CHECK(err.empty());
+	const Bytes t = readAll(tpl);
+	CHECK(t.size() < original.size() - 4000);  // sin el mdat
+	CHECK(!contains(t, "+40.4168"));
+	CHECK(!contains(t, "secreto"));
+	CHECK(!contains(t, "serial123"));
+	CHECK(!contains(t, std::string(4, (char)0x11)));  // fecha de mvhd
+	CHECK(!contains(t, std::string(4, (char)0x13)));  // fecha de tkhd
+	CHECK(!contains(t, std::string(8, (char)0x14)));  // fecha de mdhd (v1)
+	CHECK(limpiados >= 3);  // udta, meta y uuid
+
+	InfoPlantilla ti = leerPlantilla(tpl);
+	CHECK(ti.ok);
+	CHECK_EQ(ti.id, std::string("mi cámara"));
+	CHECK_EQ(ti.video_codec, std::string("avc1"));
+	CHECK_EQ(ti.width, 1920);
+	CHECK_EQ(ti.mdat_bytes, (uint64_t)5000);
+	CHECK_EQ(extensionMaterializada(ti), std::string(".mp4"));
+
+	// Materializar: mismo tamano y mismos desplazamientos que el
+	// original; el mdat a cero; el moov igual salvo lo limpiado.
+	const std::string mat = dir.path("Cámara ñ/ref.mp4");
+	CHECK(materializarPlantilla(tpl, mat, err));
+	const Bytes m = readAll(mat);
+	CHECK_EQ(m.size(), original.size());
+	if (m.size() == original.size()) {
+		CHECK(std::equal(original.begin(), original.begin() + 24, m.begin()));  // ftyp
+		const size_t mdat_at = 24 + 16 + 17;  // ftyp + free + uuid
+		CHECK(std::equal(original.begin() + mdat_at, original.begin() + mdat_at + 8,
+		                 m.begin() + mdat_at));  // cabecera del mdat intacta
+		CHECK(std::all_of(m.begin() + mdat_at + 8, m.begin() + mdat_at + 5008,
+		                  [](unsigned char c) { return c == 0; }));
+		const size_t moov_at = mdat_at + 5008;
+		CHECK(std::equal(original.begin() + moov_at, original.begin() + moov_at + 8,
+		                 m.begin() + moov_at));
+	}
+	CHECK(leerPlantilla(mat).ok);
+
+	// Un MP4 normal no es una plantilla; un truncado no tiene moov.
+	CHECK(!materializarPlantilla(sano, dir.path("Cámara ñ/x.mp4"), err));
+	CHECK(!err.empty());
+	CHECK(!leerPlantilla(dir.write("Cámara ñ/truncado.mp4", truncatedMp4())).ok);
+
+	// Orden de candidatas.
+	auto mk = [](const char* id, const char* c, int w, int h) {
+		InfoPlantilla i;
+		i.ok = true; i.id = id; i.video_codec = c; i.width = w; i.height = h;
+		return i;
+	};
+	std::vector<InfoPlantilla> todas = {mk("hevc", "hvc1", 1920, 1080),
+	                                    mk("hd", "avc1", 1280, 720),
+	                                    mk("fhd", "avc1", 1920, 1080)};
+	auto o = ordenarCandidatas(todas, "", 1920, 1080, "avc1?");
+	CHECK_EQ(o.size(), (size_t)2);  // la HEVC no puede servir para H.264
+	if (o.size() == 2) {
+		CHECK_EQ(o[0].id, std::string("fhd"));
+		CHECK_EQ(o[1].id, std::string("hd"));
+	}
+	o = ordenarCandidatas(todas, "hevc", 1920, 1080, "avc1");
+	CHECK(!o.empty() && o[0].id == "hevc");  // pedida por nombre: primero
+	o = ordenarCandidatas(todas, "", 0, 0, "");  // sin pistas: todas
+	CHECK_EQ(o.size(), (size_t)3);
+
+	auto dirs = carpetasBusqueda(nullptr);
+	CHECK(!dirs.empty() && dirs[0] == carpetaUsuario());
 }
 
 static void testTempDirs() {
@@ -525,6 +666,7 @@ int main() {
 	testJsonHelpers();
 	testDiagnosticPacket();
 	testUnicodePaths(dir);
+	testPlantillas(dir);
 
 	std::cout << g_checks << " comprobaciones, " << g_failures << " fallos\n";
 	return g_failures == 0 ? 0 : 1;

@@ -137,6 +137,8 @@ fi
 # findTrainScript/findBaseModelDir y profile_db.cpp loadProfiles):
 #   profiles/profiles.json, models/onnx_base/, tools/train_onnx.py
 cp -v "$SOURCE_DIR/profiles/profiles.json" "$STAGE/profiles/profiles.json"
+mkdir -p "$STAGE/profiles/plantillas"
+cp -v "$SOURCE_DIR/profiles/plantillas/README.md" "$STAGE/profiles/plantillas/README.md"
 cp -v "$SOURCE_DIR/src/ai/onnx/modelo_base/modelo.onnx" \
       "$SOURCE_DIR/src/ai/onnx/modelo_base/pesos.json" \
       "$SOURCE_DIR/src/ai/onnx/modelo_base/model_info.json" \

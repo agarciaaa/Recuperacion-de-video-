@@ -10,6 +10,7 @@
 
 #include "../common.h"
 #include "../diagnoser.h"
+#include "../plantillas.h"
 #include "../tempfs.h"
 #include "../upath.h"
 #include "external/external_provider.h"
@@ -155,14 +156,63 @@ RescueOutcome rescueWithoutReference(const std::string& damaged_path,
 	out.hybrid = hybridAnalyze(damaged_path, "", cfg, profile_override, argv0);
 	const AiSuggestion& s = out.hybrid.suggestion;
 
+	// 1) Plantillas con la cabecera REAL de la camara (plantillas.h).
+	// Van primero: una referencia de otro codificador (la sintetica de
+	// libx264) no comparte SPS/PPS ni estructura con la camara y en la
+	// practica no recupera nada; una plantilla de la misma camara si.
+	{
+		std::vector<plantillas::InfoPlantilla> cand = plantillas::ordenarCandidatas(
+		    plantillas::listarPlantillas(argv0), profile_override, s.width, s.height, s.codec);
+		if (!cand.empty()) {
+			plantillas::ResultadoPlantillas pr =
+			    plantillas::repararConPlantillas(cand, damaged_path, opts, 3);
+			out.plantillas_probadas = pr.probadas_es;
+			if (pr.ok) {
+				out.attempted = true;
+				out.ok = true;
+				out.repair = pr.repair;
+				out.plantilla_usada = pr.usada.id;
+				std::ostringstream ss;
+				ss << "Rescate sin referencia con plantilla de cámara '" << pr.usada.id
+				   << "' (" << pr.usada.resumenEs() << ").\n";
+				if (pr.probadas_es.size() > 1) {
+					ss << "Plantillas probadas:\n";
+					for (const auto& l : pr.probadas_es) ss << "  - " << l << "\n";
+				}
+				ss << "Recuperado: " << (int)out.repair.recovered_percent << "% del vídeo"
+				   << " | Duración: " << formatDurationEs(out.repair.duration_ms)
+				   << " | Salida: " << out.repair.output_path << "\n"
+				   << "El original no se ha modificado. Revisa el vídeo reparado en VLC "
+				      "de principio a fin antes de borrar el original.";
+				out.summary_es = ss.str();
+				return out;
+			}
+		}
+	}
+	// Texto comun para cuando no hay plantilla que funcione.
+	std::string nota_plantillas;
+	{
+		std::ostringstream ns;
+		if (!out.plantillas_probadas.empty()) {
+			ns << "Plantillas de cámara probadas sin éxito:\n";
+			for (const auto& l : out.plantillas_probadas) ns << "  - " << l << "\n";
+		}
+		ns << "Consejo: con un vídeo sano corto (10-15 s) grabado con la MISMA cámara y "
+		      "la misma configuración, crea una plantilla una sola vez:\n"
+		      "  untrunc --crear-plantilla <vídeo_sano.mp4> [nombre]\n"
+		      "y el modo sin referencia la usará en adelante (sin necesitar ese vídeo).";
+		nota_plantillas = ns.str();
+	}
+
 	// Sin parametros detectados no se inventa nada.
 	if (s.width <= 0 || s.height <= 0) {
 		out.error_es = "La IA local no pudo detectar la resolucion del video danado "
 		               "(no se encontro un SPS valido en el mdat; en MP4 el SPS vive en "
 		               "el moov perdido). Sin resolucion no se puede construir una "
 		               "referencia sintetica. Opciones: un video de referencia sano del "
-		               "mismo dispositivo, o indicar el perfil con --perfil "
-		               "(p. ej. --perfil generico_h264_1080p30).";
+		               "mismo dispositivo, una plantilla de la camara (--crear-plantilla), "
+		               "o indicar el perfil con --perfil "
+		               "(p. ej. --perfil generico_h264_1080p30).\n" + nota_plantillas;
 		// Se incluye el resumen hibrido para que el usuario vea que
 		// IA se consulto (local y, si estaba activada, externa) y
 		// con que confianza; si no, la consulta externa quedaba
@@ -182,7 +232,7 @@ RescueOutcome rescueWithoutReference(const std::string& damaged_path,
 	(void)profile;
 	if (!synth.ok) {
 		out.error_es = synth.error_es;
-		out.summary_es = synth.error_es + "\n" + out.hybrid.summary_es;
+		out.summary_es = synth.error_es + "\n" + nota_plantillas + "\n" + out.hybrid.summary_es;
 		return out;
 	}
 	out.synthetic_ref_used = true;
@@ -221,6 +271,8 @@ RescueOutcome rescueWithoutReference(const std::string& damaged_path,
 		ss << "La reparación con referencia sintética no terminó: " << out.repair.error_es
 		   << "\nPrueba con una referencia sana real del mismo dispositivo.";
 	}
+	if (!out.ok || out.repair.duration_ms < 1000)
+		ss << "\n" << nota_plantillas;
 	out.summary_es = ss.str();
 	return out;
 }

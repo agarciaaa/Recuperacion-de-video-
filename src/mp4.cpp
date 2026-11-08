@@ -43,6 +43,13 @@ uint64_t Mp4::step_ = 1;
 
 Mp4::~Mp4() {
 	delete root_atom_;
+	// Igual con el ultimo archivo leido (referencia o danado).
+	delete current_file_;
+	// Cerrar la referencia abierta por FFmpeg. Antes nunca se cerraba:
+	// el archivo quedaba abierto hasta salir del programa y en Windows
+	// no se podia borrar (referencias temporales, plantillas) ni mover.
+	// Los Codec solo usan los codecpar mientras vive este Mp4.
+	if (context_) avformat_close_input(&context_);
 }
 
 void Mp4::parseHealthy() {
