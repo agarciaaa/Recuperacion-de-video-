@@ -143,6 +143,23 @@ void Gui::init() {
 
 	window_ = newWindow("untrunc-gui", 820, 640, 0);
 
+	// Preferencias guardadas (ai.conf) -> globales de la GUI, ANTES de
+	// construir las pestanas. Asi, p. ej., el ONNX activado sigue
+	// activado al volver a abrir el programa.
+	{
+		AiConfig c = loadAiConfig();  // g_ai_gui_activa aun es false
+		g_ai_local_enabled = c.local_enabled;
+		g_ai_local_profile = c.local_profile;
+		g_onnx_enabled = c.onnx_enabled;
+		g_onnx_model_path = c.onnx_model_path;
+		g_onnx_threshold = c.onnx_threshold;
+		g_ai_lmstudio_enabled = c.lmstudio_enabled;
+		g_lmstudio_endpoint = c.lmstudio_endpoint;
+		g_lmstudio_model = c.lmstudio_model;
+		g_lmstudio_timeout_seconds = c.lmstudio_timeout_seconds;
+		g_ai_gui_activa = true;
+	}
+
 	build();
 	setSpaced(true);
 
@@ -884,15 +901,21 @@ void Gui::Train::updateLists() {
 void Gui::Train::updateModelLabel() {
 	if (!label_modelo_) return;
 	OnnxModelInfo info;
-	std::string donde;
-	if (readOnnxModelInfo(onnxModelActivoDir(), info)) {
+	std::string donde, aviso;
+	// El modelo que se usara DE VERDAD (salta los incompletos).
+	const std::string dir = onnxModeloEnUso(g_onnx_model_path, g_exe_argv0, info, aviso);
+	if (dir == onnxModelActivoDir()) {
 		donde = "modelo entrenado por ti";
-	} else if (readOnnxModelInfo(findBaseModelDir(g_exe_argv0), info)) {
+	} else if (dir == onnxModelAnteriorDir()) {
+		donde = "copia de seguridad de tu modelo anterior";
+	} else if (!dir.empty() && dir == g_onnx_model_path) {
+		donde = "carpeta configurada";
+	} else if (!dir.empty()) {
 		donde = "modelo base incluido (sin entrenar todavía)";
 	} else {
 		uiLabelSetText(label_modelo_,
-		               "Modelo actual: ninguno. Restablece el modelo base o entrena "
-		               "con tus vídeos para tener uno.");
+		               ("Modelo actual: ninguno. Restablece el modelo base o entrena "
+		                "con tus vídeos para tener uno. " + aviso).c_str());
 		if (chk_usar_) {
 			uiCheckboxSetChecked(chk_usar_, 0);
 			uiControlDisable(uiControl(chk_usar_));
@@ -906,6 +929,7 @@ void Gui::Train::updateModelLabel() {
 	                "validación " + std::to_string((int)(info.precision_validacion * 100)) +
 	                "% (heurística: " + std::to_string((int)(info.precision_baseline * 100)) +
 	                "%)  ·  " + info.fecha;
+	if (!aviso.empty()) s += "\nAviso: " + aviso;
 	uiLabelSetText(label_modelo_, s.c_str());
 	if (chk_usar_) uiControlEnable(uiControl(chk_usar_));
 }
@@ -1393,15 +1417,21 @@ uiControl* Gui::trainTab() {
 	uiCheckboxOnToggled(Train::chk_usar_, [](uiCheckbox* chk_box, void* data){
 		auto v = uiCheckboxChecked(chk_box);
 		OnnxModelInfo info;
-		if (v && !readOnnxModelInfo(onnxModelActivoDir(), info) &&
-		    !readOnnxModelInfo(findBaseModelDir(g_exe_argv0), info)) {
-			Gui::msgBoxError("No hay ningún modelo ONNX válido para usar. Restablece el "
-			                 "modelo base o entrena con tus vídeos.");
+		std::string aviso;
+		if (v && onnxModeloEnUso(g_onnx_model_path, g_exe_argv0, info, aviso).empty()) {
+			Gui::msgBoxError(("No hay ningún modelo ONNX válido para usar. Restablece el "
+			                  "modelo base o entrena con tus vídeos. " + aviso).c_str());
 			uiCheckboxSetChecked(chk_box, 0);
 			g_onnx_enabled = false;
+			guardarAiConf("onnx_enabled", "0");
 			return;
 		}
 		g_onnx_enabled = v;
+		// Se recuerda para la proxima vez que se abra el programa.
+		if (!guardarAiConf("onnx_enabled", v ? "1" : "0"))
+			Gui::msgBoxError(("No se pudo guardar la preferencia en " + aiConfPath() +
+			                  ". Funcionará en esta sesión, pero habrá que volver a "
+			                  "activarla la próxima vez.").c_str());
 	}, nullptr);
 	uiButtonOnClicked(btn_reset, [](uiButton* b, void* data){
 		std::string base = findBaseModelDir(g_exe_argv0);
@@ -1870,16 +1900,22 @@ void Gui::Assistant::startBatch(uiButton* button, void* data) {
 				// Modo clasico con referencia (Fase 1): mismo
 				// pre-vuelo, mismo reintento automatico y misma
 				// salida a Reparados/ que startRepair, archivo a
-				// archivo. La sugerencia de IA solo se escribe en
-				// el registro, como en startRepair; no cambia la
-				// reparacion.
+				// archivo. La sugerencia de IA decide que estrategia
+				// (-s / -dyn) se prueba primero en la busqueda.
+				RepairOptions o_ia = opts;
 				if (g_ai_local_enabled || g_ai_lmstudio_enabled ||
 				    g_ai_external_enabled || g_onnx_enabled) {
 					AiConfig cfgFile = loadAiConfig();
 					auto hr = hybridAnalyze(files[i], refCopy, cfgFile, g_ai_local_profile, g_exe_argv0);
 					std::cout << "\n" << hr.summary_es << "\n";
+					if (hr.suggestion.confidence >= 0.5) {
+						o_ia.hint_set = true;
+						o_ia.hint_s = hr.suggestion.use_step;
+						o_ia.hint_dyn = hr.suggestion.use_dyn;
+						o_ia.hint_fuente = hr.suggestion.source;
+					}
 				}
-				RepairOutcome o = repairFileWithAutoRetry(refCopy, files[i], opts, true);
+				RepairOutcome o = repairFileWithAutoRetry(refCopy, files[i], o_ia, true);
 				// Punto 4: si el pre-vuelo rechazo el danado por no
 				// parecer MP4/MOV y "Intentar de todos modos" esta
 				// marcado, se intenta el rescate forzado en vez de
@@ -2516,10 +2552,17 @@ void Gui::startRepair(uiButton* b, void* data) {
 				// tambien a Qwen y a la externa sin avisar), o si el
 				// modelo ONNX esta activado en la pestana Entrenar.
 				// El perfil por defecto viene de la pestana IA.
+				RepairOptions o_ia = opts;
 				if (g_ai_local_enabled || g_ai_lmstudio_enabled || g_ai_external_enabled || g_onnx_enabled) {
 					AiConfig cfg = loadAiConfig();
 					auto hr = hybridAnalyze(file_bad, file_ok, cfg, g_ai_local_profile, g_exe_argv0);
 					cout << "\n" << hr.summary_es << "\n";
+					if (hr.suggestion.confidence >= 0.5) {
+						o_ia.hint_set = true;
+						o_ia.hint_s = hr.suggestion.use_step;
+						o_ia.hint_dyn = hr.suggestion.use_dyn;
+						o_ia.hint_fuente = hr.suggestion.source;
+					}
 					if (hr.onnx_consulted)
 						cout << "Modelo ONNX consultado (local, entrenado en esta PC).\n";
 					if (hr.lmstudio_consulted)
@@ -2530,7 +2573,7 @@ void Gui::startRepair(uiButton* b, void* data) {
 				// Fase 1 (1.3/1.4/1.6): reintento automatico con -s,
 				// salida a Reparados/ y resumen en espanol.
 				// La logica es la misma que usa el CLI (repair_job.cpp).
-				auto outcome = repairFileWithAutoRetry(file_ok, file_bad, opts, true);
+				auto outcome = repairFileWithAutoRetry(file_ok, file_bad, o_ia, true);
 				chkHiddenWarnings();
 				Repair::onProgress(100);
 				cout << "\n" << outcome.message_es << "\n";

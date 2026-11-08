@@ -112,6 +112,21 @@ const std::string& lastTrainScriptOutput();
 // modelo es válido. No lanza excepciones.
 bool readOnnxModelInfo(const std::string& dir, OnnxModelInfo& info);
 
+// Copia de seguridad del modelo activo anterior (la deja el script
+// al aceptar un modelo nuevo): .../entrenamiento/modelo_activo_anterior
+std::string onnxModelAnteriorDir();
+
+// true si la carpeta tiene un modelo aceptado Y sus pesos (pesos.json)
+// se pueden cargar de verdad. why_es explica el fallo en espanol.
+bool onnxModelUsable(const std::string& dir, std::string& why_es);
+
+// Modelo que se usara realmente, en orden: ruta configurada, modelo
+// activo, copia de seguridad, modelo base incluido. Se salta los que
+// esten incompletos (p. ej. sin pesos.json) y lo explica en aviso_es.
+// Devuelve la carpeta ("" si no hay ninguno) y rellena info.
+std::string onnxModeloEnUso(const std::string& ruta_configurada, const char* argv0,
+                            OnnxModelInfo& info, std::string& aviso_es);
+
 class OnnxProvider : public IAiProvider {
 public:
 	explicit OnnxProvider(const AiConfig& cfg, const char* argv0 = nullptr);
@@ -134,6 +149,8 @@ public:
 	// solo las reglas, cuando el modelo esté validado.
 	OnnxWindowResult classifyWindow(const unsigned char* data, size_t len) const;
 	const OnnxModelInfo& modelInfo() const { return info_; }
+	// Modelos saltados al cargar (incompletos o danados), o "".
+	const std::string& avisoCarga() const { return aviso_carga_; }
 
 	// Extracción de características: IDÉNTICA a train_onnx.py
 	// (extraer_features). Si se cambia aquí, hay que cambiarla allí.
@@ -143,6 +160,7 @@ private:
 	AiConfig cfg_;
 	OnnxModelInfo info_;
 	bool weights_loaded_ = false;
+	std::string aviso_carga_;
 	// Pesos del MLP (mismos que el .onnx): W1[264*64], b1[64],
 	// W2[64*32], b2[32], W3[32*4], b3[4].
 	std::vector<float> w1_, b1_, w2_, b2_, w3_, b3_;

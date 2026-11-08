@@ -40,6 +40,11 @@ struct RepairOutcome {
 	std::string message_es;    // resumen en espanol para el usuario
 	std::string error_es;      // mensaje de error en espanol (si ok == false)
 	std::string retry_error_es;
+	// Busqueda de estrategias: una linea por intento ("-s -dyn: 14 s
+	// (99%)") y si la primera se eligio por la memoria de reparaciones.
+	std::vector<std::string> intentos_es;
+	bool desde_memoria = false;
+	std::string firma_camara;
 };
 
 // Repara UN archivo con pre-vuelo + reintento automatico.

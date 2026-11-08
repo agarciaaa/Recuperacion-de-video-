@@ -106,6 +106,20 @@ extern std::string g_onnx_model_path; // "" = modelo_activo, luego base
 extern double g_onnx_threshold;       // 0.75 por defecto
 
 AiConfig loadAiConfig();
+
+// La GUI pone esto a true despues de copiar ai.conf a sus globales:
+// desde entonces loadAiConfig() usa los globales de la GUI. Antes se
+// aplicaban SIEMPRE, asi que lo guardado en ai.conf (p. ej. tener el
+// ONNX activado) se pisaba con el valor por defecto y "se perdia".
+extern bool g_ai_gui_activa;
+
+// Ruta de ai.conf: <HOME o USERPROFILE>/.config/untrunc/ai.conf
+// (antes solo HOME, que en Windows normalmente no existe).
+std::string aiConfPath();
+
+// Guarda (o cambia) una clave de ai.conf conservando el resto del
+// archivo. Nunca se usa para la clave API. Devuelve false si no pudo.
+bool guardarAiConf(const std::string& clave, const std::string& valor);
 // Rellena endpoint/modelo por defecto si no hay nada configurado.
 // El endpoint por defecto es INTENCIONADAMENTE invalido
 // (https://api.example.invalid/...) para que nunca se haga una

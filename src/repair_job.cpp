@@ -11,6 +11,7 @@
 
 #include "common.h"
 #include "file.h"
+#include "memoria.h"
 #include "mp4.h"
 #include "upath.h"
 
@@ -100,7 +101,7 @@ Attempt runAttempt(const std::string& ref, const std::string& corrupt) {
 }
 
 std::string describeMode(bool with_s, bool with_dyn) {
-	if (with_s && with_dyn) return "reintento automático con -s -dyn";
+	if (with_s && with_dyn) return "con -s -dyn (omitir desconocidas + estadísticas dinámicas)";
 	if (with_s) return "con -s (omitir secuencias desconocidas)";
 	if (with_dyn) return "con -dyn (estadísticas dinámicas)";
 	return "normal";
@@ -165,7 +166,54 @@ RepairOutcome repairFileWithAutoRetry(const std::string& ref_path,
 	const bool user_s = run.ignore_unknown;
 	const bool user_dyn = run.use_chunk_stats;
 
-	Attempt first = runAttempt(ref_path, corrupt_path);
+	// Busqueda de estrategias (antes: un intento + como mucho un
+	// reintento con -s -dyn). Orden:
+	//   1) lo que pidio el usuario (-s / -dyn), si pidio algo;
+	//   2) lo que mejor funciono antes con esta camara (memoria.h);
+	//   3) la sugerencia de la IA, si la hay;
+	//   4) normal, -s -dyn, -dyn, -s.
+	// Se para en cuanto un intento recupera el video completo (>= 99%).
+	struct Estrategia {
+		bool s, dyn;
+		std::string por_que;
+	};
+	std::vector<Estrategia> plan;
+	auto anadir = [&plan](bool s, bool dyn, const std::string& por_que) {
+		for (const auto& e : plan)
+			if (e.s == s && e.dyn == dyn) return;
+		plan.push_back({s, dyn, por_que});
+	};
+	out.firma_camara = memoria::firmaReferencia(ref_path);
+	const memoria::Recuerdo recuerdo = memoria::consultar(out.firma_camara);
+	if (user_s || user_dyn) anadir(user_s, user_dyn, "tus opciones");
+	if (recuerdo.hay)
+		anadir(recuerdo.s, recuerdo.dyn,
+		       "fue la mejor con esta cámara " + std::to_string(recuerdo.victorias) +
+		           (recuerdo.victorias == 1 ? " vez" : " veces"));
+	if (run.hint_set)
+		anadir(run.hint_s, run.hint_dyn,
+		       "sugerida por la IA" + (run.hint_fuente.empty() ? "" : " (" + run.hint_fuente + ")"));
+	anadir(false, false, "orden por defecto");
+	anadir(true, true, "orden por defecto");
+	anadir(false, true, "orden por defecto");
+	anadir(true, false, "orden por defecto");
+	// -rsv-ben no es compatible con -s ni -dyn (lo rechaza el CLI).
+	if (run.rsv_ben_mode) {
+		plan.clear();
+		anadir(false, false, "único modo compatible con -rsv-ben");
+	}
+	if (!allow_retry) plan.resize(1);
+	out.desde_memoria = recuerdo.hay && !(user_s || user_dyn);
+
+	auto ejecutar = [&](const Estrategia& e) {
+		RepairOptions o = run;
+		o.ignore_unknown = e.s;
+		o.use_chunk_stats = e.dyn;
+		RepairSession sub(o);  // sesion anidada: restaura al salir
+		return runAttempt(ref_path, corrupt_path);
+	};
+
+	Attempt first = ejecutar(plan[0]);
 	if (first.threw) {
 		out.ok = false;
 		out.error_es = "No se pudo reparar " + corrupt_path + ".\n"
@@ -182,58 +230,71 @@ RepairOutcome repairFileWithAutoRetry(const std::string& ref_path,
 	out.first_output_path = first.output;
 	out.duration_ms = first.duration_ms;
 	out.output_bytes = first.out_bytes;
-	out.mode_es = describeMode(user_s, user_dyn);
+	out.mode_es = describeMode(plan[0].s, plan[0].dyn);
 
-	// 1.3: auto -s + auto -dyn. Solo un reintento, solo si el
-	// primer intento se corto antes del 90% y el usuario no dio -s.
-	// Nota: premature_percentage_ es un porcentaje 0-100 (no una
-	// fraccion 0-1); el codigo original de la GUI comparaba con
-	// 0.9, lo que practicamente nunca se cumplia. Aqui se compara
-	// con 90, que es lo que se queria decir. Se usa el % honesto
-	// (honestRecoveredPercent), asi que tambien se reintenta si el
-	// primer intento "termino" pero no recupero nada.
-	int64_t retry_duration_ms = 0;
-	if (allow_retry && !user_s && first.pct < 90.0) {
+	// Resto de estrategias, solo mientras el mejor intento no haya
+	// recuperado el video completo.
+	auto lineaIntento = [](const Estrategia& e, const Attempt& a) {
+		std::ostringstream l;
+		l << describeMode(e.s, e.dyn) << " (" << e.por_que << "): ";
+		if (a.threw) l << "falló (" << a.error << ")";
+		else if (a.duration_ms < kMinUsefulRecoveredMs) l << "nada útil";
+		else l << formatDurationEs(a.duration_ms) << " (" << (int)a.pct << "%)";
+		return l.str();
+	};
+	std::vector<std::pair<size_t, Attempt>> hechos = {{0, first}};
+	out.intentos_es.push_back(lineaIntento(plan[0], first));
+	size_t mejor = 0;
+	Attempt best = first;
+	for (size_t i = 1; i < plan.size(); i++) {
+		// Parar si ya esta completo, o si el mejor intento leyo el
+		// archivo hasta el final sin cortarse (premature_end falso):
+		// -s / -dyn solo ayudan cuando el nucleo se detiene antes.
+		if (best.duration_ms >= kMinUsefulRecoveredMs && (best.pct >= 99.0 || !best.premature))
+			break;
+		Attempt a = ejecutar(plan[i]);
+		hechos.push_back({i, a});
+		out.intentos_es.push_back(lineaIntento(plan[i], a));
 		out.retried = true;
-		RepairOptions retry_opts = run;
-		retry_opts.ignore_unknown = true;
-		retry_opts.use_chunk_stats = true;
-		Attempt retry;
-		{
-			RepairSession retry_session(retry_opts);  // sesion anidada
-			retry = runAttempt(ref_path, corrupt_path);
+		if (a.threw) {
+			if (out.retry_error_es.empty()) out.retry_error_es = a.error;
+			continue;
 		}
-		if (!retry.threw) {
-			retry_duration_ms = retry.duration_ms;
-			out.retry_percent = retry.pct;
-			out.retry_output_path = retry.output;
-			if (attemptIsBetter(retry.duration_ms, retry.pct, first.duration_ms, first.pct)) {
-				// Nos quedamos con el resultado mas largo.
-				out.recovered_percent = retry.pct;
-				out.output_path = retry.output;
-				out.duration_ms = retry.duration_ms;
-				out.output_bytes = retry.out_bytes;
-				out.mode_es = "reintento automático con -s -dyn (mejor que el primer intento)";
-			} else {
-				out.mode_es = "normal (el reintento automático con -s -dyn no mejoró el resultado; "
-				              "se conserva el primer intento)";
-			}
-		} else {
-			out.retry_error_es = retry.error;
-			out.mode_es = "normal (el reintento automático falló; se conserva el primer intento)";
+		if (attemptIsBetter(a.duration_ms, a.pct, best.duration_ms, best.pct)) {
+			best = a;
+			mejor = i;
 		}
 	}
-
-	// Un intento que no llego a kMinUsefulRecoveredMs no recupero
-	// nada util: su salida (un MP4 de pocos KB, 0-1 fotogramas) no
-	// sirve y confunde. Se borra.
-	auto removeEmptyOutput = [](const std::string& path, int64_t duration_ms) {
-		if (path.empty() || duration_ms >= kMinUsefulRecoveredMs) return;
+	out.recovered_percent = best.pct;
+	out.output_path = best.output;
+	out.duration_ms = best.duration_ms;
+	out.output_bytes = best.out_bytes;
+	if (hechos.size() > 1) {
+		out.retry_percent = best.pct;
+		std::ostringstream m;
+		m << describeMode(plan[mejor].s, plan[mejor].dyn) << " (la mejor de "
+		  << hechos.size() << " estrategias probadas";
+		if (mejor == 0 && out.desde_memoria) m << "; la memoria acertó";
+		m << ")";
+		out.mode_es = m.str();
+	} else if (out.desde_memoria) {
+		out.mode_es += " (elegida por la memoria de reparaciones: " + plan[0].por_que + ")";
+	}
+	// Solo se conserva la mejor salida; las demas se borran (antes
+	// se guardaba tambien "el otro intento", con mas estrategias
+	// serian hasta cuatro archivos casi iguales).
+	for (const auto& h : hechos) {
+		const Attempt& a = h.second;
+		if (a.threw || a.output.empty() || a.output == best.output) continue;
 		std::error_code ec;
-		fs::remove(upath::toPath(path), ec);
-	};
-	removeEmptyOutput(out.first_output_path, first.duration_ms);
-	if (out.retried) removeEmptyOutput(out.retry_output_path, retry_duration_ms);
+		fs::remove(upath::toPath(a.output), ec);
+	}
+	if (best.duration_ms < kMinUsefulRecoveredMs && !best.output.empty()) {
+		std::error_code ec;
+		fs::remove(upath::toPath(best.output), ec);
+	}
+	if (mejor != 0) out.first_output_path.clear();  // se borro
+	if (out.retried && mejor != 0) out.retry_output_path = best.output;
 
 	if (out.duration_ms < kMinUsefulRecoveredMs) {
 		out.ok = false;
@@ -251,16 +312,8 @@ RepairOutcome repairFileWithAutoRetry(const std::string& ref_path,
 		out.message_es = out.error_es;
 		return out;
 	}
-
-	// El otro intento solo se menciona si recupero algo (si no, se borro).
-	std::string other_output;
-	if (out.retried) {
-		const bool kept_first = (out.output_path == out.first_output_path);
-		const std::string other = kept_first ? out.retry_output_path : out.first_output_path;
-		const int64_t other_ms = kept_first ? retry_duration_ms : first.duration_ms;
-		if (!other.empty() && other != out.output_path && other_ms >= kMinUsefulRecoveredMs)
-			other_output = other;
-	}
+	// Se aprende: la proxima vez, con esta camara, se prueba primero.
+	memoria::anotar(out.firma_camara, plan[mejor].s, plan[mejor].dyn);
 
 	// 1.6: vista previa minima en texto: duracion + % reconocido.
 	std::ostringstream ss;
@@ -272,8 +325,10 @@ RepairOutcome repairFileWithAutoRetry(const std::string& ref_path,
 	if (out.output_bytes > 0)
 		ss << " (" << prettyBytesDiag(out.output_bytes) << ")";
 	ss << "\n  El original no se ha modificado. Ábrelo en VLC para ver el primer fotograma.";
-	if (!other_output.empty())
-		ss << "\n  (También se guardó el otro intento en: " << other_output << ")";
+	if (out.intentos_es.size() > 1) {
+		ss << "\n  Estrategias probadas:";
+		for (const auto& l : out.intentos_es) ss << "\n    - " << l;
+	}
 	out.message_es = ss.str();
 
 	return out;

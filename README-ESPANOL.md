@@ -100,6 +100,29 @@ Perfiles disponibles (`profiles/profiles.json`):
 `dji_h264_4k30`, `sony_xavc_1080p30`, `canon_hevc_4k30`,
 `obs_x264_1080p30`.
 
+## Cómo ayuda la IA a reparar (no solo a diagnosticar)
+
+- **Búsqueda automática de estrategias.** Cada reparación prueba
+  varias estrategias (normal, `-s -dyn`, `-dyn`, `-s`), se queda con
+  la que recupera más y borra las demás salidas. Para en cuanto una
+  recupera el vídeo completo o lee el archivo hasta el final. El
+  resumen lista las estrategias probadas.
+- **Memoria de reparaciones.** Guarda qué estrategia funcionó mejor
+  con cada tipo de cámara (códec, resolución y pistas; nunca rutas ni
+  vídeos) en `~/.config/untrunc/memoria_reparaciones.tsv`. La próxima
+  vez prueba esa primero.
+- **Sugerencia de la IA.** Con la IA local, ONNX, LM Studio o la
+  externa activadas, su sugerencia (`-s` / `-dyn`) decide qué estrategia
+  se prueba antes.
+- **Modelo ONNX persistente.** El modelo entrenado se guarda en
+  `~/.config/untrunc/entrenamiento/modelo_activo`, con una copia del
+  anterior en `modelo_activo_anterior`. Al terminar de entrenar, el
+  programa comprueba que puede cargarlo. Si el activo está dañado,
+  usa la copia o el modelo base y lo avisa. La casilla «Usar modelo
+  ONNX» se recuerda en `~/.config/untrunc/ai.conf` (`onnx_enabled=1`).
+
+En Windows, `~` es tu carpeta de usuario (`%USERPROFILE%`).
+
 ## Requisitos
 
 - Windows 10/11 de 64 bits (ZIP portable, sin instalación).

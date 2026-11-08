@@ -19,6 +19,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -34,6 +35,7 @@ std::string g_lmstudio_model;
 int g_lmstudio_timeout_seconds = 45;
 std::string g_ai_local_profile;
 bool g_onnx_enabled = false;
+bool g_ai_gui_activa = false;
 std::string g_onnx_model_path;
 double g_onnx_threshold = 0.75;
 
@@ -104,16 +106,60 @@ static std::string trim(const std::string& s) {
 	return s.substr(a, b - a);
 }
 
+std::string aiConfPath() {
+	std::string home = upath::getenv("HOME");
+	if (home.empty()) home = upath::getenv("USERPROFILE");
+	if (home.empty()) return "";
+	return upath::fromPath(upath::toPath(home) / ".config" / "untrunc" / "ai.conf");
+}
+
+bool guardarAiConf(const std::string& clave, const std::string& valor) {
+	if (clave.empty() || clave.find("api_key") != std::string::npos) return false;
+	const std::string conf = aiConfPath();
+	if (conf.empty()) return false;
+	const fs::path p = upath::toPath(conf);
+	std::vector<std::string> lineas;
+	bool puesta = false;
+	{
+		std::ifstream f(p);
+		std::string line;
+		while (f && std::getline(f, line)) {
+			std::string t = trim(line);
+			auto eq = t.find('=');
+			if (!t.empty() && t[0] != '#' && eq != std::string::npos &&
+			    trim(t.substr(0, eq)) == clave) {
+				if (puesta) continue;  // duplicadas: se deja una
+				line = clave + "=" + valor;
+				puesta = true;
+			}
+			lineas.push_back(line);
+		}
+	}
+	if (!puesta) lineas.push_back(clave + "=" + valor);
+	std::error_code ec;
+	fs::create_directories(p.parent_path(), ec);
+	fs::path tmp = p;
+	tmp += ".tmp";
+	{
+		std::ofstream o(tmp, std::ios::trunc);
+		if (!o) return false;
+		for (const auto& l : lineas) o << l << "\n";
+		if (!o) return false;
+	}
+	fs::rename(tmp, p, ec);
+	return !ec;
+}
+
 AiConfig loadAiConfig() {
 	AiConfig cfg;
 	cfg.endpoint = defaultEndpoint();
 
 	// 1) Archivo opcional ~/.config/untrunc/ai.conf (CLAVE=valor).
 	//    No es obligatorio; si no existe, no pasa nada.
-	const std::string home = upath::getenv("HOME");
-	if (!home.empty()) {
-		fs::path p = upath::toPath(home) / ".config" / "untrunc" / "ai.conf";
-		cfg.config_file = upath::fromPath(p);
+	const std::string conf = aiConfPath();
+	if (!conf.empty()) {
+		fs::path p = upath::toPath(conf);
+		cfg.config_file = conf;
 		std::ifstream f(p);
 		if (f) {
 			std::string line;
@@ -163,7 +209,9 @@ AiConfig loadAiConfig() {
 		try { cfg.onnx_threshold = std::stod(e); } catch (...) {}
 	}
 
-	// 3) Globales de la GUI (si la GUI los cambio en esta sesion).
+	// 3) Globales de la GUI (solo con la GUI en marcha; ver
+	//    g_ai_gui_activa).
+	if (g_ai_gui_activa) {
 	cfg.local_enabled = g_ai_local_enabled;
 	if (!g_ai_local_profile.empty()) cfg.local_profile = g_ai_local_profile;
 	cfg.external_enabled = g_ai_external_enabled;
@@ -178,6 +226,7 @@ AiConfig loadAiConfig() {
 	cfg.onnx_enabled = g_onnx_enabled;
 	if (!g_onnx_model_path.empty()) cfg.onnx_model_path = g_onnx_model_path;
 	cfg.onnx_threshold = g_onnx_threshold;
+	}
 	// Limites (una sola vez, despues de archivo, entorno y GUI).
 	if (cfg.timeout_seconds < 5) cfg.timeout_seconds = 5;
 	if (cfg.timeout_seconds > 120) cfg.timeout_seconds = 120;

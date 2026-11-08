@@ -197,6 +197,25 @@ static int runOnnxCliMode(int argc, char* argv[]) {
 		}
 		int rc = runTrainScript(args, why, argv[0]);
 		if (rc != 0) std::cerr << why << "\n";
+		if (rc == 0) {
+			// Comprobacion final: que el programa pueda CARGAR el modelo
+			// (no basta con que el script diga que lo guardo).
+			std::string salida = onnxModelActivoDir();
+			for (size_t i = 0; i + 1 < rest.size(); i++)
+				if (rest[i] == "--salida") salida = rest[i + 1];
+			std::string why_uso;
+			if (onnxModelUsable(salida, why_uso)) {
+				std::cout << "Comprobado: el programa carga el modelo nuevo y lo usará en "
+				             "las próximas reparaciones (se guarda en " << salida << ").\n";
+				if (salida == onnxModelActivoDir() && !loadAiConfig().onnx_enabled)
+					std::cout << "Para usarlo siempre sin poner --usar-onnx, añade "
+					             "onnx_enabled=1 a " << aiConfPath()
+					          << " (la casilla de la pestaña Entrenar lo hace sola).\n";
+			} else {
+				std::cerr << "ATENCIÓN: el modelo no se puede cargar: " << why_uso << "\n";
+				return 1;
+			}
+		}
 		return rc == 0 ? 0 : 1;
 	}
 	// --probar-onnx
@@ -238,7 +257,7 @@ static RepairOutcome maybeForcedRescue(const std::string& corrupt,
 	AiConfig cfg = loadAiConfig();
 	cfg.external_enabled = ai_external;
 	cfg.lmstudio_enabled = ai_lmstudio;
-	cfg.onnx_enabled = ai_onnx;
+	cfg.onnx_enabled = cfg.onnx_enabled || ai_onnx;
 	if (!onnx_model_override.empty()) cfg.onnx_model_path = onnx_model_override;
 	if (!lmstudio_endpoint_override.empty()) cfg.lmstudio_endpoint = lmstudio_endpoint_override;
 	if (!lmstudio_model_override.empty()) cfg.lmstudio_model = lmstudio_model_override;
@@ -757,7 +776,7 @@ int main(int argc, char *argv[]) {
 		AiConfig cfg = loadAiConfig();
 		cfg.external_enabled = ai_external;  // solo si el usuario lo pidio
 		cfg.lmstudio_enabled = ai_lmstudio;  // solo si el usuario lo pidio
-		cfg.onnx_enabled = ai_onnx;          // solo si el usuario lo pidio
+		cfg.onnx_enabled = cfg.onnx_enabled || ai_onnx;  // --usar-onnx o activado en ai.conf
 		if (!onnx_model_override.empty()) cfg.onnx_model_path = onnx_model_override;
 		if (!lmstudio_endpoint_override.empty()) cfg.lmstudio_endpoint = lmstudio_endpoint_override;
 		if (!lmstudio_model_override.empty()) cfg.lmstudio_model = lmstudio_model_override;
@@ -793,6 +812,8 @@ int main(int argc, char *argv[]) {
 		return rescue.ok ? 0 : 1;
 	}
 
+	bool ai_hint_set = false, ai_hint_s = false, ai_hint_dyn = false;
+	std::string ai_hint_fuente;
 	// Fase 2: asesoramiento de IA antes de la reparacion clasica.
 	// Si el usuario pidio IA externa sin clave/endpoint, se falla
 	// rapido y claro SIN hacer ninguna llamada de red.
@@ -800,7 +821,7 @@ int main(int argc, char *argv[]) {
 		AiConfig cfg = loadAiConfig();
 		cfg.external_enabled = ai_external;
 		cfg.lmstudio_enabled = ai_lmstudio;
-		cfg.onnx_enabled = ai_onnx;
+		cfg.onnx_enabled = cfg.onnx_enabled || ai_onnx;
 		if (!onnx_model_override.empty()) cfg.onnx_model_path = onnx_model_override;
 		if (!lmstudio_endpoint_override.empty()) cfg.lmstudio_endpoint = lmstudio_endpoint_override;
 		if (!lmstudio_model_override.empty()) cfg.lmstudio_model = lmstudio_model_override;
@@ -824,6 +845,14 @@ int main(int argc, char *argv[]) {
 		}
 		auto hr = hybridAnalyze(corrupt, ok, cfg, profile_override, argv[0]);
 		cout << hr.summary_es << "\n";
+		// La sugerencia ya no se queda en texto: decide que estrategia
+		// (-s / -dyn) se prueba primero en la reparacion de abajo.
+		if (hr.suggestion.confidence >= 0.5) {
+			ai_hint_set = true;
+			ai_hint_s = hr.suggestion.use_step;
+			ai_hint_dyn = hr.suggestion.use_dyn;
+			ai_hint_fuente = hr.suggestion.source;
+		}
 		if (hr.onnx_consulted)
 			cout << "Modelo ONNX consultado (local, entrenado en esta PC).\n";
 		if (hr.lmstudio_consulted)
@@ -869,7 +898,12 @@ int main(int argc, char *argv[]) {
 		if (corrupt.size() && !show_tracks && !show_atoms && !show_stats &&
 		    !show_info && !dump_samples && !analyze && !analyze_offset &&
 		    !make_streamable) {
-			auto outcome = repairFileWithAutoRetry(ok, corrupt, allow_retry);
+			RepairOptions run_opts = RepairOptions::fromGlobals();
+			run_opts.hint_set = ai_hint_set;
+			run_opts.hint_s = ai_hint_s;
+			run_opts.hint_dyn = ai_hint_dyn;
+			run_opts.hint_fuente = ai_hint_fuente;
+			auto outcome = repairFileWithAutoRetry(ok, corrupt, run_opts, allow_retry);
 			if (forzar) {
 				std::string rs;
 				outcome = maybeForcedRescue(corrupt, outcome, forzar, profile_override,

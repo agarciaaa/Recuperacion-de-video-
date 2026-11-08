@@ -41,6 +41,13 @@ struct RepairOptions {
 	bool ignore_unknown = false;        // -s
 	uint64_t step = 1;                  // tamano de paso de -s
 	bool use_chunk_stats = false;       // -dyn
+	// Sugerencia de la IA (local, ONNX, LM Studio o externa) para la
+	// busqueda de estrategias de repairFileWithAutoRetry: se prueba
+	// antes que el orden por defecto. No se aplica al nucleo.
+	bool hint_set = false;
+	bool hint_s = false;
+	bool hint_dyn = false;
+	std::string hint_fuente;            // "local", "onnx"...
 	bool stretch_video = false;         // -sv
 	bool dont_exclude = false;          // -k
 	bool rsv_ben_mode = false;          // -rsv-ben

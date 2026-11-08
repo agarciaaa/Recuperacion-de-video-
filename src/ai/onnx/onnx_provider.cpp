@@ -54,6 +54,11 @@ std::string onnxModelActivoDir() {
 	return d.empty() ? "" : upath::fromPath(upath::toPath(d) / "modelo_activo");
 }
 
+std::string onnxModelAnteriorDir() {
+	std::string d = onnxTrainingDir();
+	return d.empty() ? "" : upath::fromPath(upath::toPath(d) / "modelo_activo_anterior");
+}
+
 std::string onnxDatasetDir() {
 	std::string d = onnxTrainingDir();
 	return d.empty() ? "" : upath::fromPath(upath::toPath(d) / "dataset");
@@ -462,24 +467,71 @@ OnnxProvider::OnnxProvider(const AiConfig& cfg, const char* argv0) : cfg_(cfg) {
 	// arrancar (setExeArgv0) o el respaldo relativo en desarrollo.
 	// Antes se llamaba a findBaseModelDir() sin argumento y desde
 	// un ZIP extraído el modelo base no se encontraba (Fase 3 §6).
-	const char* eff = effectiveArgv0(argv0);
-	// Orden de búsqueda del modelo: 1) ruta configurada, 2) modelo
-	// activo entrenado por el usuario, 3) modelo base incluido.
-	std::string dir;
-	if (!cfg_.onnx_model_path.empty() &&
-	    readOnnxModelInfo(cfg_.onnx_model_path, info_)) {
-		dir = cfg_.onnx_model_path;
-	} else if (readOnnxModelInfo(onnxModelActivoDir(), info_)) {
-		dir = onnxModelActivoDir();
-	} else if (readOnnxModelInfo(findBaseModelDir(eff), info_)) {
-		dir = findBaseModelDir(eff);
-	}
+	// Orden: ruta configurada, modelo activo, copia de seguridad del
+	// anterior, modelo base. Antes, si el modelo activo tenia
+	// model_info.json pero le faltaba pesos.json, se elegia igual,
+	// no cargaba y ONNX quedaba muerto (sin pasar al siguiente).
+	std::string dir = onnxModeloEnUso(cfg_.onnx_model_path, argv0, info_, aviso_carga_);
 	if (!dir.empty()) weights_loaded_ = loadWeights(dir);
 	if (!weights_loaded_ && info_.cargado) {
 		info_.cargado = false;
 		info_.error_es = "El modelo tiene model_info.json pero no se pudieron "
 		                 "leer sus pesos (pesos.json). Se degrada a heurísticas.";
 	}
+}
+
+namespace {
+bool pesosValidos(const std::string& dir) {
+	std::string txt = readFileText(upath::fromPath(upath::toPath(dir) / "pesos.json"));
+	if (txt.empty()) return false;
+	std::vector<float> v;
+	const struct { const char* k; size_t n; } formas[] = {
+	    {"W1", 264 * 64}, {"b1", 64}, {"W2", 64 * 32}, {"b2", 32}, {"W3", 32 * 4}, {"b3", 4}};
+	for (const auto& f : formas)
+		if (!jsonFloatArray(txt, f.k, v) || v.size() != f.n) return false;
+	return true;
+}
+} // namespace
+
+bool onnxModelUsable(const std::string& dir, std::string& why_es) {
+	OnnxModelInfo info;
+	if (!readOnnxModelInfo(dir, info)) {
+		why_es = info.error_es;
+		return false;
+	}
+	if (!pesosValidos(dir)) {
+		why_es = "Al modelo de " + dir + " le falta pesos.json o está dañado; "
+		         "sin él no se puede usar.";
+		return false;
+	}
+	return true;
+}
+
+std::string onnxModeloEnUso(const std::string& ruta_configurada, const char* argv0,
+                            OnnxModelInfo& info, std::string& aviso_es) {
+	aviso_es.clear();
+	const char* eff = effectiveArgv0(argv0);
+	const std::pair<std::string, const char*> candidatos[] = {
+	    {ruta_configurada, "la carpeta configurada"},
+	    {onnxModelActivoDir(), "tu modelo entrenado"},
+	    {onnxModelAnteriorDir(), "la copia de seguridad de tu modelo anterior"},
+	    {findBaseModelDir(eff), "el modelo base incluido"}};
+	for (const auto& c : candidatos) {
+		if (c.first.empty()) continue;
+		std::string why;
+		if (onnxModelUsable(c.first, why)) {
+			readOnnxModelInfo(c.first, info);
+			return c.first;
+		}
+		// Solo se avisa de modelos que existen pero estan rotos
+		// (no de carpetas vacias o modelos rechazados a proposito).
+		OnnxModelInfo tmp;
+		if (readOnnxModelInfo(c.first, tmp))
+			aviso_es += std::string("No se pudo usar ") + c.second + ": " + why + " ";
+	}
+	info = OnnxModelInfo();
+	info.error_es = aviso_es.empty() ? "No hay ningún modelo ONNX disponible." : aviso_es;
+	return "";
 }
 
 bool OnnxProvider::loadWeights(const std::string& dir) {

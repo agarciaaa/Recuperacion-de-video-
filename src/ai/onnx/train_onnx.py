@@ -1028,13 +1028,44 @@ def exportar_onnx(pesos, ruta_onnx):
     return True, ""
 
 
+FORMAS_PESOS = {"W1": (N_FEATURES, 64), "b1": (64,), "W2": (64, 32),
+                "b2": (32,), "W3": (32, N_CLASES), "b3": (N_CLASES,)}
+
+
+def pesos_json_valido(ruta: Path) -> bool:
+    """Comprueba que pesos.json se puede leer y tiene las formas que
+    espera el programa (C++). Es lo que el programa carga: sin él el
+    modelo no sirve aunque exista modelo.onnx."""
+    try:
+        pj = json.loads(ruta.read_text(encoding="utf-8"))
+        for k, forma in FORMAS_PESOS.items():
+            n = 1
+            for d in forma:
+                n *= d
+            if len(pj[k]) != n:
+                return False
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def guardar_modelo(pesos, salida: Path, info_extra):
+    """Guarda el modelo de forma ATÓMICA: primero escribe los tres
+    archivos con extensión .tmp, comprueba pesos.json, copia el modelo
+    que hubiera a <salida>_anterior (copia de seguridad que el programa
+    usa si el activo se estropea) y solo entonces reemplaza; el último
+    en reemplazarse es model_info.json, que es el que marca el modelo
+    como presente. Antes se escribía directamente encima: un corte a
+    mitad (o un pesos.json perdido) dejaba un modelo activo inservible
+    que el programa elegía igual y el ONNX dejaba de funcionar."""
+    import shutil
     salida.mkdir(parents=True, exist_ok=True)
+    tmp = {n: salida / (n + ".tmp") for n in ("pesos.json", "modelo.onnx", "model_info.json")}
     pesos_json = {k: [round(float(x), 6) for x in v.flatten()]
                   for k, v in pesos.items()}
     pesos_json["_formas"] = {k: list(v.shape) for k, v in pesos.items()}
-    (salida / "pesos.json").write_text(json.dumps(pesos_json), encoding="utf-8")
-    ok, err = exportar_onnx(pesos, salida / "modelo.onnx")
+    tmp["pesos.json"].write_text(json.dumps(pesos_json), encoding="utf-8")
+    ok, err = exportar_onnx(pesos, tmp["modelo.onnx"])
     info = {"nombre": "untrunc_onnx_mlp", "arquitectura": ARQUITECTURA,
             "parametros": PARAMETROS, "ventana": VENTANA,
             "features": N_FEATURES, "clases": CLASES,
@@ -1043,9 +1074,26 @@ def guardar_modelo(pesos, salida: Path, info_extra):
             "fecha": time.strftime("%Y-%m-%dT%H:%M:%S")}
     info.update(info_extra)
     if ok:
-        info["tamano_bytes"] = (salida / "modelo.onnx").stat().st_size
-    (salida / "model_info.json").write_text(
+        info["tamano_bytes"] = tmp["modelo.onnx"].stat().st_size
+    tmp["model_info.json"].write_text(
         json.dumps(info, indent=2, ensure_ascii=False), encoding="utf-8")
+    if not pesos_json_valido(tmp["pesos.json"]):
+        for t in tmp.values():
+            if t.exists():
+                t.unlink()
+        raise RuntimeError(f"no se pudo escribir pesos.json en {salida}")
+    # Copia de seguridad del modelo anterior (si era utilizable).
+    if (salida / "model_info.json").exists() and pesos_json_valido(salida / "pesos.json"):
+        respaldo = salida.parent / (salida.name + "_anterior")
+        respaldo.mkdir(parents=True, exist_ok=True)
+        for n in ("pesos.json", "modelo.onnx", "model_info.json"):
+            if (salida / n).exists():
+                shutil.copy2(salida / n, respaldo / n)
+    if not ok and (salida / "modelo.onnx").exists():
+        (salida / "modelo.onnx").unlink()  # el viejo no corresponde a estos pesos
+    for n in ("pesos.json", "modelo.onnx", "model_info.json"):
+        if tmp[n].exists():
+            os.replace(tmp[n], salida / n)
     return ok, err, info
 
 

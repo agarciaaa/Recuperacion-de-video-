@@ -33,6 +33,9 @@
 #include "../src/repair_job.h"
 #include "../src/repair_options.h"
 #include "../src/plantillas.h"
+#include "../src/memoria.h"
+#include "../src/ai/ai_provider.h"
+#include "../src/ai/onnx/onnx_provider.h"
 #include "../src/shell_util.h"
 #include "../src/tempfs.h"
 #include "../src/upath.h"
@@ -405,6 +408,97 @@ static void testPlantillas(const TempDir& dir) {
 	CHECK(!dirs.empty() && dirs[0] == carpetaUsuario());
 }
 
+// Cambia una variable de entorno (para apuntar HOME/USERPROFILE a una
+// carpeta de prueba y no tocar la configuracion real del usuario).
+static void ponerEnv(const char* k, const std::string& v) {
+#ifdef _WIN32
+	// Version ancha: la estrecha interpretaria la "ñ" en ANSI.
+	_wputenv_s(fs::path(k).wstring().c_str(), upath::toPath(v).wstring().c_str());
+#else
+	setenv(k, v.c_str(), 1);
+#endif
+}
+
+static void testMemoria(const TempDir& dir) {
+	memoria::usarArchivo(dir.path("memoria ñ/memoria.tsv"));
+	CHECK(!memoria::consultar("avc1 1920x1080").hay);
+	CHECK(memoria::anotar("avc1 1920x1080", true, true));
+	CHECK(memoria::anotar("avc1 1920x1080", false, false));
+	CHECK(memoria::anotar("avc1 1920x1080", true, true));
+	CHECK(memoria::anotar("hvc1 3840x2160", false, true));
+	memoria::Recuerdo r = memoria::consultar("avc1 1920x1080");
+	CHECK(r.hay);
+	CHECK(r.s && r.dyn);           // -s -dyn gano 2 veces, normal 1
+	CHECK_EQ(r.victorias, 2);
+	r = memoria::consultar("hvc1 3840x2160");
+	CHECK(r.hay && !r.s && r.dyn);
+	CHECK(!memoria::consultar("").hay);
+	// Sin rutas ni nombres de archivo: solo firmas.
+	const Bytes m = readAll(dir.path("memoria ñ/memoria.tsv"));
+	CHECK(!contains(m, dir.path("")));
+	// Firma desde la cabecera (sirve igual con video sano o plantilla).
+	const std::string sano = dir.write("memoria ñ/sano.mp4", cameraMp4("avc1", 1280, 720));
+	CHECK_EQ(memoria::firmaReferencia(sano), std::string("avc1 1280x720 ftyp:isom pistas:avc1"));
+	memoria::usarArchivo("");
+}
+
+static void testConfigYOnnx(const TempDir& dir) {
+	// HOME/USERPROFILE de prueba: ai.conf y el entrenamiento van ahi.
+	const std::string home = dir.path("casa ñ");
+	fs::create_directories(upath::toPath(home));
+	const std::string old_home = upath::getenv("HOME"), old_up = upath::getenv("USERPROFILE");
+	ponerEnv("HOME", home);
+	ponerEnv("USERPROFILE", home);
+
+	CHECK_EQ(aiConfPath(), upath::fromPath(upath::toPath(home) / ".config" / "untrunc" / "ai.conf"));
+	CHECK(!loadAiConfig().onnx_enabled);
+	CHECK(guardarAiConf("onnx_enabled", "1"));
+	CHECK(guardarAiConf("local_profile", "gopro_h264_1080p60"));
+	CHECK(guardarAiConf("onnx_enabled", "1"));  // cambiar, no duplicar
+	CHECK(!guardarAiConf("api_key", "secreto"));  // nunca la clave
+	AiConfig c = loadAiConfig();
+	CHECK(c.onnx_enabled);  // antes se pisaba con el global de la GUI
+	CHECK_EQ(c.local_profile, std::string("gopro_h264_1080p60"));
+	const Bytes conf = readAll(aiConfPath());
+	CHECK(!contains(conf, "secreto"));
+	CHECK(guardarAiConf("onnx_enabled", "0"));
+	CHECK(!loadAiConfig().onnx_enabled);
+
+	// Modelo activo sin pesos.json (lo que habia en la PC de Angel):
+	// antes se elegia igual y el ONNX quedaba muerto; ahora se salta
+	// y se usa la copia de seguridad, avisando.
+	const std::string base = findBaseModelDir(nullptr);
+	CHECK(!base.empty());
+	std::string why, aviso;
+	OnnxModelInfo info;
+	if (!base.empty()) {
+		CHECK(onnxModelUsable(base, why));
+		const fs::path activo = upath::toPath(onnxModelActivoDir());
+		const fs::path anterior = upath::toPath(onnxModelAnteriorDir());
+		fs::create_directories(activo);
+		fs::create_directories(anterior);
+		fs::copy_file(upath::toPath(base) / "model_info.json", activo / "model_info.json");
+		CHECK(!onnxModelUsable(onnxModelActivoDir(), why));
+		CHECK(why.find("pesos.json") != std::string::npos);
+		for (const char* n : {"model_info.json", "pesos.json"})
+			fs::copy_file(upath::toPath(base) / n, anterior / n);
+		CHECK_EQ(onnxModeloEnUso("", nullptr, info, aviso), onnxModelAnteriorDir());
+		CHECK(info.cargado);
+		CHECK(!aviso.empty());
+		// Sin copia de seguridad: el modelo base incluido.
+		fs::remove_all(anterior);
+		CHECK_EQ(onnxModeloEnUso("", nullptr, info, aviso), base);
+		// El proveedor carga de verdad (antes: weights_loaded_ false).
+		AiConfig oc;
+		oc.onnx_enabled = true;
+		OnnxProvider p(oc);
+		CHECK(p.isAvailable(why));
+		CHECK(!p.avisoCarga().empty());
+	}
+	ponerEnv("HOME", old_home);
+	ponerEnv("USERPROFILE", old_up);
+}
+
 static void testTempDirs() {
 	fs::path kept;
 	{
@@ -667,6 +761,8 @@ int main() {
 	testDiagnosticPacket();
 	testUnicodePaths(dir);
 	testPlantillas(dir);
+	testMemoria(dir);
+	testConfigYOnnx(dir);
 
 	std::cout << g_checks << " comprobaciones, " << g_failures << " fallos\n";
 	return g_failures == 0 ? 0 : 1;
