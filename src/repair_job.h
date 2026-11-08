@@ -15,6 +15,7 @@
 #ifndef REPAIR_JOB_H
 #define REPAIR_JOB_H
 
+#include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
@@ -70,5 +71,27 @@ std::string batchSummaryEs(
     const std::vector<std::pair<std::string, RepairOutcome>>& results);
 
 std::string formatDurationEs(int64_t ms);
+
+// Porcentaje HONESTO recuperado en un intento (0-100).
+// premature_percentage_ del nucleo mide hasta donde llego el escaneo
+// del mdat, no cuanto se recupero: con -s el escaneo salta todo lo
+// que no reconoce, llega al final sin "premature end" y daba 100%
+// aunque la salida pesara 1 KB y durara 0 s. Aqui:
+//   - sin salida o menos de kMinUsefulRecoveredMs -> 0;
+//   - si no, el menor entre el % escaneado y el % del archivo
+//     danado que acabo en la salida.
+// Menos de esto no cuenta como video recuperado: con una referencia
+// de otro dispositivo el nucleo a veces reconoce 1 solo fotograma
+// (33 ms) y el resto se pierde.
+static const int64_t kMinUsefulRecoveredMs = 1000;
+
+double honestRecoveredPercent(bool premature_end, double premature_percentage,
+                              uint64_t output_bytes, uint64_t corrupt_bytes,
+                              int64_t duration_ms);
+
+// true si el intento B recupero mas que el A: primero por duracion,
+// y a igual duracion por porcentaje.
+bool attemptIsBetter(int64_t duration_b, double pct_b,
+                     int64_t duration_a, double pct_a);
 
 #endif // REPAIR_JOB_H

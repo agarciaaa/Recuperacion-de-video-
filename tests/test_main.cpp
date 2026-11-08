@@ -161,6 +161,31 @@ static void testFormatDuration() {
 	CHECK_EQ(formatDurationEs(3600000), std::string("1 h 0 min 0 s"));
 }
 
+static void testHonestPercent() {
+	// Caso real: con -s el escaneo llega al final (sin "premature
+	// end") pero la salida pesa 1,4 KB y dura 0 s. Antes: "100%".
+	CHECK(honestRecoveredPercent(false, 0, 1434, 1500000, 0) == 0.0);
+	// Sin salida -> 0 aunque haya duracion.
+	CHECK(honestRecoveredPercent(false, 0, 0, 1500000, 5000) == 0.0);
+	// Reparacion buena: limitada por lo que acabo en la salida.
+	double p = honestRecoveredPercent(true, 99.83, 1430000, 1500000, 14900);
+	CHECK(p > 95.0 && p < 95.5);
+	// Un solo fotograma (33 ms) no es un video recuperado.
+	CHECK(honestRecoveredPercent(true, 0.04, 9000, 1500000, 33) == 0.0);
+	// Corte temprano: manda el % escaneado.
+	CHECK(honestRecoveredPercent(true, 40.0, 1400000, 1500000, 6000) == 40.0);
+	// Nunca mas de 100.
+	CHECK(honestRecoveredPercent(false, 0, 2000000, 1500000, 20000) == 100.0);
+	// Sin tamano del danado: el % escaneado.
+	CHECK(honestRecoveredPercent(false, 0, 1000, 0, 1000) == 100.0);
+
+	// Se elige por duracion recuperada, no por el % escaneado.
+	CHECK(!attemptIsBetter(0, 100.0, 33, 0.04));
+	CHECK(attemptIsBetter(14900, 50.0, 33, 99.0));
+	CHECK(attemptIsBetter(1000, 60.0, 1000, 50.0));
+	CHECK(!attemptIsBetter(1000, 50.0, 1000, 50.0));
+}
+
 static void testPrettyBytes() {
 	CHECK_EQ(prettyBytesDiag(512), std::string("512.00 B"));
 	CHECK_EQ(prettyBytesDiag(2048), std::string("2.00 KB"));
@@ -381,6 +406,7 @@ int main() {
 	TempDir dir;
 	testShellQuote();
 	testFormatDuration();
+	testHonestPercent();
 	testPrettyBytes();
 	testReparadosPath();
 	testProbeFile(dir);
