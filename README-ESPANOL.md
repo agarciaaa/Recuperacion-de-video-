@@ -50,8 +50,7 @@ fps, mismo códec — y la aplica a los datos del vídeo dañado.
   `tools/train_onnx.py` + este README + `LEEME-Primeros-pasos.txt`
   + `COPYING`. Sin instalador y **sin firma de código** (el
   certificado cuesta dinero; ver el aviso de SmartScreen en el
-  LEEME). Ver `../phase3/FASE3_EMPAQUETADO.md` (fuera del ZIP)
-  con el contenido exacto, los tamaños y cómo se armó el paquete.
+  LEEME).
 
 ## Uso rápido (GUI, recomendado)
 
@@ -366,9 +365,3 @@ make untrunc-gui      # GUI: untrunc-gui.exe (necesita libui)
 make dist-linux       # ZIP de prueba para Linux (ver empaquetar.sh)
 make dist-windows     # ZIP para Windows (en MSYS2, tras compilar ambos .exe)
 ```
-
-Detalles de cada fase (fuera del ZIP, junto al código):
-`../analysis/ANALISIS_MEJORADO.md`, `../phase1/FASE1_RESULTADOS.md`,
-`../phase2/FASE2_HIBRIDA.md`, `../phase2/LMSTUDIO_QWEN.md`,
-`../phase2/GUI_IA_CONEXIONES.md`, `../phase2/ENTRENAR_ONNX.md`,
-`../phase2/FORMATOS.md`, `../phase3/FASE3_EMPAQUETADO.md`.

@@ -27,10 +27,9 @@
 #   que llaman a este script: una sola fuente de verdad para la
 #   lista de archivos del paquete.
 #
-# Sin firma de código: el ZIP NO se firma (el certificado cuesta
-# dinero cada año y Angel no quiere gastar más). El aviso de
-# SmartScreen que verá el usuario está documentado en español en
-# LEEME-Primeros-pasos.txt y en ../phase3/FASE3_EMPAQUETADO.md.
+# Sin firma de código: el ZIP NO se firma. El aviso de SmartScreen
+# que verá el usuario está documentado en español en
+# LEEME-Primeros-pasos.txt.
 # No se finge que el .exe esté firmado.
 set -euo pipefail
 

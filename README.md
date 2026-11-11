@@ -10,9 +10,7 @@ Untrunc
 > detección de archivos intercambiados, reintento automático con `-s -dyn`
 > cuando la reparación se corta antes del 90% (`src/repair_job.*`), lote
 > con salida a la carpeta `Reparados/` sin tocar el original, y GUI en
-> español con resumen de duración y % recuperado. Detalles y resultados
-> de las pruebas en `../phase1/FASE1_RESULTADOS.md` (fuera del repo
-> clonado, junto al análisis en `../analysis/ANALISIS_MEJORADO.md`).
+> español con resumen de duración y % recuperado.
 > El núcleo C++ original (`mp4.cpp`, `codec.cpp`, `track.cpp`) se mantiene
 > intacto salvo el manejo de errores de `Mp4::parseOk()`.
 >
@@ -28,8 +26,7 @@ Untrunc
 > es baja y está activada. Nuevo modo sin referencia (`--sin-referencia`
 > con `--perfil`): construye una referencia sintética local con ffmpeg
 > y repara con el motor clásico. `--solo-diagnostico` imprime exactamente
-> qué texto se enviaría, sin enviar nada. Detalles, pruebas y límites en
-> `../phase2/FASE2_HIBRIDA.md`. La GUI añade Ajustes > IA (código en
+> qué texto se enviaría, sin enviar nada. La GUI añade Ajustes > IA (código en
 > `src/gui/gui.cpp`; sin compilar en Linux por falta de libui).
 >
 > **LM Studio — Qwen local (2026-11-07).** Tercer proveedor de IA, en
@@ -41,8 +38,6 @@ Untrunc
 > autodetección con `GET /v1/models`, `--lmstudio-listar`). El
 > orquestador híbrido consulta primero la IA local, después a Qwen si la
 > confianza es baja y Qwen está activado, y por último a la IA externa.
-> Detalles, configuración en Windows y pruebas en
-> `../phase2/LMSTUDIO_QWEN.md`.
 >
 > Restore a damaged (truncated) mp4, m4v, mov, 3gp video. Provided you have a similar not broken video. And some luck.
 
