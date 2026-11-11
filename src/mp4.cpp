@@ -529,6 +529,7 @@ void Mp4::saveVideo(const string& filename) {
 		int64_t bytes_not_matched = 0;
 		for (auto n : unknown_lengths_) bytes_not_matched += n;
 		double percentage = (double)100 * bytes_not_matched / mdat->contentSize();
+		unknown_percentage_ = percentage;
 		logg(W, "Unknown sequences: ", unknown_lengths_.size(), '\n');
 		logg(W, "Bytes NOT matched: ", pretty_bytes(bytes_not_matched), " (", percentage, "%)\n");
 	}
@@ -2232,11 +2233,11 @@ void Mp4::addMatch(off_t& offset, FrameInfo& match) {
 	}
 }
 
-bool Mp4::chainLooksValid(off_t offset, int n_more) {
+int Mp4::chainLength(off_t offset, int max) {
 	const off_t end = current_mdat_->contentSize();
-	for (int k = 0; k < n_more; k++) {
-		if (offset == end) return true;  // el ultimo fotograma acaba justo al final
-		if (offset > end || end - offset < 8) return false;
+	for (int k = 0; k < max; k++) {
+		if (offset == end) return max;  // el ultimo fotograma acaba justo al final
+		if (offset > end || end - offset < 8) return k;
 		auto start = loadFragment(offset);
 		bool ok = false;
 		for (uint i = 0; i < tracks_.size() && !ok; i++) {
@@ -2247,10 +2248,28 @@ bool Mp4::chainLooksValid(off_t offset, int n_more) {
 			offset += m.length_ + m.pad_afterwards_;
 			ok = true;
 		}
-		if (!ok) return false;
+		if (!ok) return k;
 	}
-	return true;
+	return max;
 }
+
+namespace {
+// Diagnostico (desarrollo): si existe UNTRUNC_VOLCAR_RESINC=<archivo>,
+// cada candidato de tryResync se anota como
+// "offset_absoluto<TAB>codec<TAB>cadena<TAB>p_modelo" (p=-1 sin modelo).
+// Sirve para medir contra la verdad conocida de un video sano danado
+// a proposito y para sacar ejemplos dificiles para entrenar ONNX.
+FILE* volcadoResinc() {
+	static FILE* f = nullptr;
+	static bool mirado = false;
+	if (!mirado) {
+		mirado = true;
+		const char* p = getenv("UNTRUNC_VOLCAR_RESINC");
+		if (p && *p) f = fopen(p, "a");
+	}
+	return f;
+}
+} // namespace
 
 bool Mp4::tryResync(off_t& offset) {
 	if (!unknown_length_ || !g_resync_enabled) return false;
@@ -2273,16 +2292,17 @@ bool Mp4::tryResync(off_t& offset) {
 		std::copy(w, w + n, win);
 
 		off_t next = offset + m.length_ + m.pad_afterwards_;
-		if (!chainLooksValid(next, 2)) continue;
-		double p = g_resync_scorer ? g_resync_scorer(win, (size_t)n) : 1.0;
-		if (p < 0.5) {
-			logg(V, "tryResync: cadena ok en ", offToStr(offset), " pero el modelo dice ", p, "\n");
-			g_resync_vetos++;
-			continue;
+		const int cadena = chainLength(next, volcadoResinc() ? 4 : 2);
+		if (FILE* f = volcadoResinc()) {
+			double pv = g_resync_scorer ? g_resync_scorer(win, (size_t)n) : -1.0;
+			fprintf(f, "%lld\t%s\t%d\t%.5f\n",
+			        (long long)(current_mdat_->contentStart() + offset), cn.c_str(), cadena, pv);
+			fflush(f);
 		}
+		if (cadena < 2) continue;
 
 		loadFragment(offset);  // deja current_maxlength_ como estaba para addMatch
-		logg(V, "tryResync: ", cn, " en ", offToStr(offset), " (modelo ", p, ")\n");
+		logg(V, "tryResync: ", cn, " en ", offToStr(offset), "\n");
 		g_resync_count++;
 		addMatch(offset, m);
 		return true;
@@ -2436,7 +2456,6 @@ void Mp4::repair(const string& filename) {
 	}
 
 	g_resync_count = 0;
-	g_resync_vetos = 0;
 	while (chkOffset(offset)) {
 		if (tryAll(offset)) continue;
 		if (tryResync(offset)) continue;

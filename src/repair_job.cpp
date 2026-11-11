@@ -6,6 +6,7 @@
 
 #include "repair_job.h"
 
+#include <cstdlib>
 #include <filesystem>
 #include <sstream>
 
@@ -65,12 +66,12 @@ struct Attempt {
 	int64_t duration_ms = 0;
 	uint64_t out_bytes = 0;
 	int resincs = 0;
-	int vetos = 0;
+	double desconocido = 0;  // % del mdat sin reconocer
 };
 
-// Si ONNX esta activado, mientras dura una reparacion el modelo
-// confirma cada resincronizacion (g_resync_scorer); al salir se
-// desconecta siempre.
+// Si ONNX esta activado, mientras dura una reparacion el modelo puntua
+// los candidatos de resincronizacion para el volcado de diagnostico
+// (g_resync_scorer, no decide nada); al salir se desconecta siempre.
 struct ResincGuard {
 	bool activo = false;
 	std::string modelo_es;
@@ -85,6 +86,10 @@ struct ResincGuard {
 	~ResincGuard() { desactivarResincronizacionOnnx(); }
 };
 
+// Un intento que llega al final pero deja mas de esto sin reconocer
+// no detiene la busqueda de estrategias.
+constexpr double kMaxDesconocidoParaParar = 5.0;
+
 Attempt runAttempt(const std::string& ref, const std::string& corrupt) {
 	Attempt a;
 	try {
@@ -94,7 +99,7 @@ Attempt runAttempt(const std::string& ref, const std::string& corrupt) {
 		mp4.repair(corrupt);
 		a.premature = mp4.premature_end_;
 		a.resincs = g_resync_count;
-		a.vetos = g_resync_vetos;
+		a.desconocido = mp4.unknown_percentage_;
 		a.output = mp4.getPathRepaired(ref, corrupt);
 		a.duration_ms = mp4.getDurationInMs();
 		std::error_code ec;
@@ -166,8 +171,7 @@ RepairOutcome repairFileWithAutoRetry(const std::string& ref_path,
 	// Desde aqui el nucleo trabaja con `run`; al salir (por cualquier
 	// return o excepcion) se restauran las globales.
 	RepairSession session(run);
-	ResincGuard resinc(run.resinc);
-	out.resinc_modelo_es = resinc.modelo_es;
+	ResincGuard resinc(run.resinc && getenv("UNTRUNC_VOLCAR_RESINC"));
 
 	// Si ya existe la salida y esta -skip, no se repara: se anota y
 	// se sigue (en lote no se puede hacer exit(0) como hacia repair()).
@@ -273,9 +277,11 @@ RepairOutcome repairFileWithAutoRetry(const std::string& ref_path,
 	Attempt best = first;
 	for (size_t i = 1; i < plan.size(); i++) {
 		// Parar si ya esta completo, o si el mejor intento leyo el
-		// archivo hasta el final sin cortarse (premature_end falso):
-		// -s / -dyn solo ayudan cuando el nucleo se detiene antes.
-		if (best.duration_ms >= kMinUsefulRecoveredMs && (best.pct >= 99.0 || !best.premature))
+		// archivo hasta el final Y reconocio casi todo. Antes bastaba con
+		// no cortarse: con -s nunca se corta, y un intento que dejaba el
+		// 70 % sin reconocer paraba la busqueda.
+		if (best.duration_ms >= kMinUsefulRecoveredMs &&
+		    (best.pct >= 99.0 || (!best.premature && best.desconocido < kMaxDesconocidoParaParar)))
 			break;
 		Attempt a = ejecutar(plan[i]);
 		hechos.push_back({i, a});
@@ -295,7 +301,6 @@ RepairOutcome repairFileWithAutoRetry(const std::string& ref_path,
 	out.duration_ms = best.duration_ms;
 	out.output_bytes = best.out_bytes;
 	out.resincs = best.resincs;
-	out.resinc_vetos = best.vetos;
 	if (hechos.size() > 1) {
 		out.retry_percent = best.pct;
 		std::ostringstream m;
@@ -355,15 +360,8 @@ RepairOutcome repairFileWithAutoRetry(const std::string& ref_path,
 	if (out.resincs > 0) {
 		ss << "\n  Zonas dañadas: se volvió a encontrar el vídeo " << out.resincs
 		   << (out.resincs == 1 ? " vez" : " veces")
-		   << " (3 fotogramas seguidos que encajan";
-		if (!out.resinc_modelo_es.empty())
-			ss << ", confirmado por el modelo ONNX «" << out.resinc_modelo_es << "»";
-		ss << ").";
+		   << " (3 fotogramas seguidos que encajan).";
 	}
-	if (out.resinc_vetos > 0)
-		ss << "\n  El modelo ONNX descartó " << out.resinc_vetos
-		   << (out.resinc_vetos == 1 ? " candidato dudoso" : " candidatos dudosos")
-		   << " que sí encajaban en cadena.";
 	if (out.intentos_es.size() > 1) {
 		ss << "\n  Estrategias probadas:";
 		for (const auto& l : out.intentos_es) ss << "\n    - " << l;

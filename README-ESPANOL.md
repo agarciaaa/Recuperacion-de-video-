@@ -109,9 +109,8 @@ Antes, en vídeos de cámaras que no marcan el inicio de cada fotograma
 (muchos móviles), la reparación se perdía en la primera zona dañada y
 todo lo que venía después se daba por perdido. Ahora, dentro de una zona
 dañada, se vuelve a aceptar un fotograma solo si **los dos siguientes
-encajan en cadena** (sus tamaños llevan exactamente al siguiente). Si el
-modelo ONNX está activado, además tiene que reconocerlo como inicio de
-fotograma.
+encajan en cadena** (sus tamaños llevan exactamente al siguiente). Funciona
+con H.264 y HEVC.
 
 Pruebas con vídeos dañados a propósito (mismo vídeo de 20 s):
 
@@ -123,10 +122,20 @@ Pruebas con vídeos dañados a propósito (mismo vídeo de 20 s):
 | Vídeo + audio, 4 zonas | 15 % | 97 % |
 | Vídeo sano | 99 % | 99 % |
 
-En estas pruebas el modelo ONNX coincidió siempre con la comprobación en
-cadena y no descartó nada; queda como filtro extra. Si alguna vez descarta
-un candidato, el resumen lo dice. Para desactivar la resincronización:
-`--sin-resinc`.
+Para desactivar la resincronización: `--sin-resinc`.
+
+**El modelo ONNX no interviene aquí.** Se midió contra la verdad conocida
+(294 candidatos de 50 reparaciones de 5 vídeos dañados a propósito):
+cuando la cadena encaja, 190 de 200 candidatos son fotogramas reales y los
+10 restantes son fotogramas reales copiados de otra parte del vídeo. Usar
+el modelo para descartar perdía 5 fotogramas reales por cada falso que
+paraba, y donde la cadena no decide aceptaba más falsos que reales. Por
+eso se quitó. Para medir modelos futuros con los mismos datos, existe la
+variable `UNTRUNC_VOLCAR_RESINC=<archivo>`, que anota cada candidato con su
+cadena y la puntuación del modelo.
+
+Además, la búsqueda de estrategias ya no se para en un intento que llega
+al final pero deja más del 5 % del vídeo sin reconocer.
 
 ## Comprobación del vídeo reparado
 

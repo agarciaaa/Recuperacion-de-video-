@@ -135,6 +135,8 @@ public:
 
 	bool premature_end_ = false;
 	double premature_percentage_ = 0;
+	// % del mdat que no se reconocio (secuencias desconocidas), tras saveVideo.
+	double unknown_percentage_ = 0;
 
 	// Chunks with constant sample size
 	class Chunk : public Track::Chunk {
@@ -338,11 +340,11 @@ private:
 	// (AUD); muchas camaras no los escriben y el nucleo no volvia a
 	// encontrar el video tras la basura. tryResync acepta un fotograma
 	// "normal" si (1) el emparejado laxo y el tamano encajan, (2) los
-	// 2 siguientes encadenan y (3), si ONNX esta activado, el modelo
-	// dice que es un inicio. En pruebas, (2) bastaba para no aceptar
-	// basura y el modelo nunca discrepo; (3) es una red de seguridad.
+	// 2 siguientes encadenan. (El modelo ONNX no decide: ver common.h.)
 	bool tryResync(off_t& offset);
-	bool chainLooksValid(off_t offset, int n_more);
+	// Cuantos fotogramas seguidos encajan desde offset (max si llega
+	// justo al final del mdat).
+	int chainLength(off_t offset, int max);
 
 	bool tryAll(off_t& offset) {
 		if (shouldPreferChunkPrediction()) {

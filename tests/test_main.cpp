@@ -789,6 +789,92 @@ static void testUnicodePaths(const TempDir& dir) {
 #endif
 }
 
+// Videos de prueba reales (patron sintetico, ver tests/fixtures/LEEME.md).
+static Bytes leerFixture(const std::string& nombre) {
+	std::ifstream f(upath::toPath("tests/fixtures/" + nombre), std::ios::binary);
+	return Bytes(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+}
+
+// Sobrescribe `n` bytes en la fraccion `frac` del mdat con basura
+// pseudoaleatoria determinista (mismo tamano de archivo).
+static Bytes danarMdat(Bytes v, double frac, size_t n) {
+	for (size_t pos = 0; pos + 8 <= v.size();) {
+		uint64_t sz = (uint64_t(v[pos]) << 24) | (v[pos + 1] << 16) | (v[pos + 2] << 8) | v[pos + 3];
+		if (sz < 8) break;
+		if (std::string(v.begin() + pos + 4, v.begin() + pos + 8) == "mdat") {
+			size_t ini = pos + 8, fin = std::min<size_t>(pos + sz, v.size());
+			size_t at = ini + (size_t)((fin - ini) * frac);
+			uint32_t x = 12345;
+			for (size_t i = at; i < std::min(at + n, fin); i++) {
+				x = x * 1103515245u + 12345u;
+				v[i] = (unsigned char)(x >> 16);
+			}
+			break;
+		}
+		pos += sz;
+	}
+	return v;
+}
+
+static void testResincronizacion(const TempDir& dir) {
+	// Sin ONNX ni memoria del usuario: resultado determinista.
+	const std::string old_home = upath::getenv("HOME"), old_up = upath::getenv("USERPROFILE");
+	ponerEnv("HOME", dir.path("casa resinc"));
+	ponerEnv("USERPROFILE", dir.path("casa resinc"));
+	memoria::usarArchivo(dir.path("memoria resinc.tsv"));
+
+	auto reparar = [&](const std::string& sano, const std::string& danado, bool resinc,
+	                   bool reintentar = false) {
+		RepairOptions o = RepairOptions::fromGlobals();
+		o.ignore_unknown = true;  // -s: seguir tras la zona danada
+		o.resinc = resinc;
+		o.verificar = false;
+		o.dst_path = dir.path("resinc salida");
+		fs::create_directories(upath::toPath(o.dst_path));
+		return repairFileWithAutoRetry(sano, danado, o, reintentar);
+	};
+
+	// Regla de parada: un intento con -s que llega al final pero deja
+	// la mayor parte sin reconocer ya no detiene la busqueda (antes
+	// paraba en el primero y se quedaba con el 40 %).
+	{
+		const Bytes b = leerFixture("h264.mp4");
+		if (b.size() > 50000) {
+			const std::string s = dir.write("parada/sano.mp4", b);
+			const std::string d = dir.write("parada/dañado.mp4", danarMdat(b, 0.4, 8000));
+			RepairOutcome r = reparar(s, d, false, true);
+			CHECK(r.intentos_es.size() >= 2);
+		}
+	}
+
+	for (const char* nombre : {"h264.mp4", "hevc.mp4", "h264_aac.mp4"}) {
+		const Bytes sano_b = leerFixture(nombre);
+		CHECK(sano_b.size() > 50000);
+		if (sano_b.size() < 50000) continue;
+		const std::string sano = dir.write(std::string("resinc ñ/sano_") + nombre, sano_b);
+		const std::string danado =
+		    dir.write(std::string("resinc ñ/dañado_") + nombre, danarMdat(sano_b, 0.4, 8000));
+
+		RepairOutcome sin = reparar(sano, danado, false);
+		RepairOutcome con = reparar(sano, danado, true);
+		// 4 s de video y 8 KB de basura: con resincronizacion se recupera
+		// casi todo (antes, en H.264 sin AUD, se perdia lo de despues).
+		CHECK(con.ok);
+		CHECK(con.duration_ms >= 3000);
+		CHECK(con.duration_ms >= sin.duration_ms);
+		if (std::string(nombre) != "hevc.mp4") {  // HEVC ya resincronizaba casi siempre
+			CHECK(con.resincs >= 1);
+			CHECK(sin.duration_ms < 2500);
+		}
+		CHECK(con.message_es.find("se volvió a encontrar el vídeo") != std::string::npos ||
+		      con.resincs == 0);
+	}
+
+	memoria::usarArchivo("");
+	ponerEnv("HOME", old_home);
+	ponerEnv("USERPROFILE", old_up);
+}
+
 int main() {
 	TempDir dir;
 	testShellQuote();
@@ -808,6 +894,7 @@ int main() {
 	testMemoria(dir);
 	testConfigYOnnx(dir);
 	testVerificar(dir);
+	testResincronizacion(dir);
 
 	std::cout << g_checks << " comprobaciones, " << g_failures << " fallos\n";
 	return g_failures == 0 ? 0 : 1;
