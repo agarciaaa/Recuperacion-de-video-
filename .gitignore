@@ -8,3 +8,6 @@ libav-*
 build
 *.pro.user
 *.exe
+
+# DLL copiadas junto al exe para abrirlo con doble clic
+*.dll
