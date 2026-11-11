@@ -302,6 +302,8 @@ void usage() {
 	     << "--preflight - solo revisa la referencia y el danado y explica en espanol si se puede reparar\n"
 	     << "--sin-verificar - no comprobar el video reparado al terminar (por defecto se\n"
 	     << "              decodifica entero y se indica en que segundos hay errores)\n"
+	     << "--sin-resinc - no intentar volver a encontrar el video tras una zona danada\n"
+	     << "              (por defecto se hace; con ONNX activado, el modelo lo confirma)\n"
 	     << "--verificar <video> - solo comprueba un video (reparado o no) y dice si hay\n"
 	     << "              errores de imagen o sonido y en que segundos\n"
 	     << "--convertir-a-mp4 <entrada> [salida] - convierte un video MKV, AVI, WMV,\n"
@@ -610,7 +612,7 @@ int main(int argc, char *argv[]) {
 			else if (a == "-ia-local") ai_local = true;
 			else if (a == "-ia-externa") ai_external = true;
 			else if (a == "-ia-lmstudio") ai_lmstudio = true;
-			else if (a == "-usar-onnx") ai_onnx = true;
+			else if (a == "-usar-onnx") { ai_onnx = true; g_onnx_enabled = true; }
 			else if (a == "-onnx-modelo") arg_onnx_modelo = kExpectArg;
 			else if (a == "-lmstudio-listar") lmstudio_listar = true;
 			else if (a == "-lmstudio-endpoint") arg_lmstudio_endpoint = kExpectArg;
@@ -654,6 +656,7 @@ int main(int argc, char *argv[]) {
 			else if (a == "dst") arg_dst = kExpectArg;
 			else if (a == "skip") g_skip_existing = true;
 			else if (a == "-sin-verificar") g_verificar_salida = false;
+			else if (a == "-sin-resinc") g_resync_enabled = false;
 			else if (a == "mp") arg_mp = kExpectArg;
 			else if (a == "dec") g_off_as_hex = false;
 			else if (a == "fa") g_fast_assert = true;

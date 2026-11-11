@@ -48,6 +48,12 @@ struct RepairOutcome {
 	std::string firma_camara;
 	// Comprobacion del resultado (si opts.verificar y ok).
 	InformeVerificacion verificacion;
+	// Veces que se volvio a encontrar el video tras una zona danada (en
+	// el intento elegido), candidatos que el modelo ONNX descarto y
+	// nombre del modelo ("" si ONNX no estaba activado).
+	int resincs = 0;
+	int resinc_vetos = 0;
+	std::string resinc_modelo_es;
 };
 
 // Repara UN archivo con pre-vuelo + reintento automatico.

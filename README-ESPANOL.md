@@ -103,6 +103,31 @@ Perfiles disponibles (`profiles/profiles.json`):
 `dji_h264_4k30`, `sony_xavc_1080p30`, `canon_hevc_4k30`,
 `obs_x264_1080p30`.
 
+## Zonas dañadas en medio del vídeo
+
+Antes, en vídeos de cámaras que no marcan el inicio de cada fotograma
+(muchos móviles), la reparación se perdía en la primera zona dañada y
+todo lo que venía después se daba por perdido. Ahora, dentro de una zona
+dañada, se vuelve a aceptar un fotograma solo si **los dos siguientes
+encajan en cadena** (sus tamaños llevan exactamente al siguiente). Si el
+modelo ONNX está activado, además tiene que reconocerlo como inicio de
+fotograma.
+
+Pruebas con vídeos dañados a propósito (mismo vídeo de 20 s):
+
+| Daño | Antes | Ahora |
+|---|---|---|
+| 4 zonas de basura | 15 % | 89 % |
+| 300 KB de ceros | 40 % | 85 % |
+| 64 KB cortando un fotograma | 40 % | 96 % |
+| Vídeo + audio, 4 zonas | 15 % | 97 % |
+| Vídeo sano | 99 % | 99 % |
+
+En estas pruebas el modelo ONNX coincidió siempre con la comprobación en
+cadena y no descartó nada; queda como filtro extra. Si alguna vez descarta
+un candidato, el resumen lo dice. Para desactivar la resincronización:
+`--sin-resinc`.
+
 ## Comprobación del vídeo reparado
 
 Al terminar, el vídeo reparado se decodifica entero (imagen y sonido) y

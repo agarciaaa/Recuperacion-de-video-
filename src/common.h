@@ -47,6 +47,17 @@ extern uint g_num_w2;  // hidden warnings
 extern Mp4* g_mp4;
 extern void (*g_onProgress)(int);
 extern void (*g_onStatus)(const std::string&);
+// Resincronizacion tras zonas danadas (Mp4::tryResync).
+//   g_resync_enabled: activada por defecto (--sin-resinc la apaga).
+//   g_resync_scorer: si no es null (ONNX activado), probabilidad 0..1 de
+//   que los bytes sean el inicio de un fotograma de video; por debajo
+//   de 0.5 el candidato se descarta aunque la cadena encaje.
+//   g_resync_count / g_resync_vetos: resincronizaciones hechas y
+//   candidatos descartados por el modelo en la ultima reparacion.
+extern bool g_resync_enabled;
+extern double (*g_resync_scorer)(const unsigned char* data, size_t len);
+extern int g_resync_count;
+extern int g_resync_vetos;
 
 const int64_t kRangeUnset = std::numeric_limits<int64_t>::min();
 

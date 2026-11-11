@@ -333,6 +333,17 @@ private:
 	bool tryMatch(off_t& off);
 	bool tryChunkPrediction(off_t& off);
 
+	// Dentro de una secuencia desconocida, el emparejado estricto de
+	// avc1/hvc1 solo acepta fotogramas que empiezan con un NAL minusculo
+	// (AUD); muchas camaras no los escriben y el nucleo no volvia a
+	// encontrar el video tras la basura. tryResync acepta un fotograma
+	// "normal" si (1) el emparejado laxo y el tamano encajan, (2) los
+	// 2 siguientes encadenan y (3), si ONNX esta activado, el modelo
+	// dice que es un inicio. En pruebas, (2) bastaba para no aceptar
+	// basura y el modelo nunca discrepo; (3) es una red de seguridad.
+	bool tryResync(off_t& offset);
+	bool chainLooksValid(off_t offset, int n_more);
+
 	bool tryAll(off_t& offset) {
 		if (shouldPreferChunkPrediction()) {
 			logg(V, "trying chunkPredict first.. \n");

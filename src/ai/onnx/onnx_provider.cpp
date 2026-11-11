@@ -4,6 +4,7 @@
 */
 
 #include "onnx_provider.h"
+#include "../../common.h"
 #include "../../upath.h"
 #include "../../tempfs.h"
 
@@ -13,6 +14,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <sstream>
 
 #ifndef _WIN32
@@ -462,6 +464,39 @@ int runTrainScript(const std::vector<std::string>& args, std::string& why_es,
 // ---------------------------------------------------------------------------
 // OnnxProvider
 // ---------------------------------------------------------------------------
+namespace {
+std::unique_ptr<OnnxProvider> g_resinc_modelo;
+std::string g_resinc_ruta;
+
+double puntuarInicioVideo(const unsigned char* data, size_t len) {
+	if (!g_resinc_modelo) return 0.0;
+	OnnxWindowResult r = g_resinc_modelo->classifyWindow(data, len);
+	// Inicio de video o de SPS (tambien abre un fotograma de video).
+	return r.probs[(int)OnnxClase::InicioVideo] + r.probs[(int)OnnxClase::InicioSps];
+}
+} // namespace
+
+bool activarResincronizacionOnnx(const AiConfig& cfg, std::string& modelo_es,
+                                 std::string& why_es) {
+	auto p = std::make_unique<OnnxProvider>(cfg);
+	if (!p->isAvailable(why_es)) {
+		desactivarResincronizacionOnnx();
+		return false;
+	}
+	const OnnxModelInfo& info = p->modelInfo();
+	modelo_es = info.nombre;
+	if (!g_resinc_modelo || g_resinc_ruta != info.ruta) {
+		g_resinc_modelo = std::move(p);
+		g_resinc_ruta = info.ruta;
+	}
+	g_resync_scorer = puntuarInicioVideo;
+	return true;
+}
+
+void desactivarResincronizacionOnnx() {
+	g_resync_scorer = nullptr;
+}
+
 OnnxProvider::OnnxProvider(const AiConfig& cfg, const char* argv0) : cfg_(cfg) {
 	// argv0 explícito si lo hay; si no, el global fijado al
 	// arrancar (setExeArgv0) o el respaldo relativo en desarrollo.

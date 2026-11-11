@@ -2232,6 +2232,64 @@ void Mp4::addMatch(off_t& offset, FrameInfo& match) {
 	}
 }
 
+bool Mp4::chainLooksValid(off_t offset, int n_more) {
+	const off_t end = current_mdat_->contentSize();
+	for (int k = 0; k < n_more; k++) {
+		if (offset == end) return true;  // el ultimo fotograma acaba justo al final
+		if (offset > end || end - offset < 8) return false;
+		auto start = loadFragment(offset);
+		bool ok = false;
+		for (uint i = 0; i < tracks_.size() && !ok; i++) {
+			auto& t = tracks_[i];
+			if (t.is_dummy_ || !t.codec_.matchSample(start)) continue;
+			FrameInfo m = predictSize(start, i, offset);
+			if (!m) continue;
+			offset += m.length_ + m.pad_afterwards_;
+			ok = true;
+		}
+		if (!ok) return false;
+	}
+	return true;
+}
+
+bool Mp4::tryResync(off_t& offset) {
+	if (!unknown_length_ || !g_resync_enabled) return false;
+	const off_t end = current_mdat_->contentSize();
+	if (end - offset < 8) return false;
+
+	for (uint i = 0; i < tracks_.size(); i++) {
+		auto& t = tracks_[i];
+		const std::string& cn = t.codec_.name_;
+		if (t.is_dummy_ || (cn != "avc1" && cn != "hvc1")) continue;
+		auto start = loadFragment(offset);
+		if (!t.codec_.matchSample(start)) continue;
+		FrameInfo m = predictSize(start, i, offset);
+		if (!m) continue;
+
+		// Ventana para el modelo (se copia: loadFragment puede mover el buffer).
+		unsigned char win[256] = {0};
+		const int n = (int)std::min<off_t>(256, end - offset);
+		const uchar* w = current_mdat_->getFragment(offset, n);
+		std::copy(w, w + n, win);
+
+		off_t next = offset + m.length_ + m.pad_afterwards_;
+		if (!chainLooksValid(next, 2)) continue;
+		double p = g_resync_scorer ? g_resync_scorer(win, (size_t)n) : 1.0;
+		if (p < 0.5) {
+			logg(V, "tryResync: cadena ok en ", offToStr(offset), " pero el modelo dice ", p, "\n");
+			g_resync_vetos++;
+			continue;
+		}
+
+		loadFragment(offset);  // deja current_maxlength_ como estaba para addMatch
+		logg(V, "tryResync: ", cn, " en ", offToStr(offset), " (modelo ", p, ")\n");
+		g_resync_count++;
+		addMatch(offset, m);
+		return true;
+	}
+	return false;
+}
+
 bool Mp4::tryMatch(off_t& offset) {
 	FrameInfo match = getMatch(offset);
 	if (match) {
@@ -2377,8 +2435,11 @@ void Mp4::repair(const string& filename) {
 		}
 	}
 
+	g_resync_count = 0;
+	g_resync_vetos = 0;
 	while (chkOffset(offset)) {
 		if (tryAll(offset)) continue;
+		if (tryResync(offset)) continue;
 
 		if (!unknown_length_) {
 			pushBackLastChunk();

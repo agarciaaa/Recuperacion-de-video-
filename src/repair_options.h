@@ -49,6 +49,9 @@ struct RepairOptions {
 	// Comprobar el resultado decodificandolo (verificar.h). Por defecto
 	// si; --sin-verificar lo apaga (g_verificar_salida).
 	bool verificar = true;
+	// Tras una zona danada, volver a encontrar el video (Mp4::tryResync,
+	// g_resync_enabled). Si ONNX esta activado, el modelo filtra ademas.
+	bool resinc = true;
 	bool hint_set = false;
 	bool hint_s = false;
 	bool hint_dyn = false;
