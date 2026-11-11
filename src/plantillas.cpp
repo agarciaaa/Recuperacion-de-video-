@@ -594,6 +594,7 @@ ResultadoPlantillas repararConPlantillas(const std::vector<InfoPlantilla>& candi
 		}
 		RepairOptions o = opts;
 		o.dst_path = upath::fromPath(salida);
+		o.verificar = false;  // solo se comprueba la elegida, al final
 		RepairOutcome rep = repairFileWithAutoRetry(upath::fromPath(ref), danado, o, true);
 		std::ostringstream line;
 		line << p.id << " (" << p.resumenEs() << "): ";
@@ -644,6 +645,10 @@ ResultadoPlantillas repararConPlantillas(const std::vector<InfoPlantilla>& candi
 	r.repair.first_output_path = r.repair.output_path;
 	r.repair.retry_output_path.clear();
 	reemplazarTodo(r.repair.message_es, antes, r.repair.output_path);
+	if (opts.verificar) {
+		r.repair.verificacion = verificarVideo(r.repair.output_path);
+		r.repair.message_es += "\n  " + r.repair.verificacion.resumenEs();
+	}
 	r.ok = true;
 	return r;
 }

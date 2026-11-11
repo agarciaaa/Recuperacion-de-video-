@@ -22,6 +22,7 @@
 
 #include "diagnoser.h"
 #include "repair_options.h"
+#include "verificar.h"
 
 struct RepairOutcome {
 	bool ok = false;
@@ -45,6 +46,8 @@ struct RepairOutcome {
 	std::vector<std::string> intentos_es;
 	bool desde_memoria = false;
 	std::string firma_camara;
+	// Comprobacion del resultado (si opts.verificar y ok).
+	InformeVerificacion verificacion;
 };
 
 // Repara UN archivo con pre-vuelo + reintento automatico.

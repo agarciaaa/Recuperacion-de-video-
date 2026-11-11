@@ -24,8 +24,11 @@ std::atomic<int> g_session_depth{0};
 
 } // namespace
 
+bool g_verificar_salida = true;
+
 RepairOptions RepairOptions::fromGlobals() {
 	RepairOptions o;
+	o.verificar = g_verificar_salida;
 	o.ignore_unknown = g_ignore_unknown;
 	o.step = Mp4::step_;
 	o.use_chunk_stats = g_use_chunk_stats;

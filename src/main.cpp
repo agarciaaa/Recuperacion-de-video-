@@ -300,6 +300,10 @@ void usage() {
 	     << "\n"
 	     << "Fase 1 (mejoras en espanol, sin IA):\n"
 	     << "--preflight - solo revisa la referencia y el danado y explica en espanol si se puede reparar\n"
+	     << "--sin-verificar - no comprobar el video reparado al terminar (por defecto se\n"
+	     << "              decodifica entero y se indica en que segundos hay errores)\n"
+	     << "--verificar <video> - solo comprueba un video (reparado o no) y dice si hay\n"
+	     << "              errores de imagen o sonido y en que segundos\n"
 	     << "--convertir-a-mp4 <entrada> [salida] - convierte un video MKV, AVI, WMV,\n"
 	     << "              WebM, FLV, MPG o MTS a MP4 con FFmpeg, para poder repararlo.\n"
 	     << "              Primero intenta NO re-codificar (remux, rapido y sin perdida);\n"
@@ -557,6 +561,16 @@ int main(int argc, char *argv[]) {
 			     << "o deja que --sin-referencia la elija sola.\n";
 			return 0;
 		}
+		if (a == "--verificar") {
+			if (j + 1 >= argc) {
+				cerr << "Uso: untrunc --verificar <video.mp4>\n";
+				return 1;
+			}
+			cout << "Comprobando " << argv[j + 1] << " (se decodifica entero)...\n";
+			InformeVerificacion v = verificarVideo(argv[j + 1]);
+			cout << "Duración: " << formatoTiempo(v.duracion_s) << "\n" << v.resumenEs() << "\n";
+			return v.limpio() ? 0 : (v.hecho ? 3 : 1);
+		}
 		if (a == "--listar-plantillas") {
 			auto lista = plantillas::listarPlantillas(argv[0]);
 			cout << "Carpetas donde se buscan plantillas (" << plantillas::kExtension << "):\n";
@@ -639,6 +653,7 @@ int main(int argc, char *argv[]) {
 			else if (a == "range") arg_range = kExpectArg;
 			else if (a == "dst") arg_dst = kExpectArg;
 			else if (a == "skip") g_skip_existing = true;
+			else if (a == "-sin-verificar") g_verificar_salida = false;
 			else if (a == "mp") arg_mp = kExpectArg;
 			else if (a == "dec") g_off_as_hex = false;
 			else if (a == "fa") g_fast_assert = true;
@@ -761,6 +776,7 @@ int main(int argc, char *argv[]) {
 		     << formatDurationEs(r.repair.duration_ms) << "\n"
 		     << "Salida: " << r.repair.output_path << "\n"
 		     << "El original no se ha modificado.\n";
+		if (r.repair.verificacion.hecho) cout << r.repair.verificacion.resumenEs() << "\n";
 		chkHiddenWarnings();
 		return 0;
 	}

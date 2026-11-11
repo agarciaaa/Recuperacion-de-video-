@@ -34,6 +34,7 @@
 #include "../src/repair_options.h"
 #include "../src/plantillas.h"
 #include "../src/memoria.h"
+#include "../src/verificar.h"
 #include "../src/ai/ai_provider.h"
 #include "../src/ai/onnx/onnx_provider.h"
 #include "../src/shell_util.h"
@@ -499,6 +500,45 @@ static void testConfigYOnnx(const TempDir& dir) {
 	ponerEnv("USERPROFILE", old_up);
 }
 
+static void testVerificar(const TempDir& dir) {
+	CHECK_EQ(formatoTiempo(0), std::string("0:00"));
+	CHECK_EQ(formatoTiempo(9.6), std::string("0:09"));
+	CHECK_EQ(formatoTiempo(65), std::string("1:05"));
+	CHECK_EQ(formatoTiempo(3723), std::string("1:02:03"));
+
+	// Errores a menos de 1 s se juntan en un tramo; separados, no.
+	auto t = agruparErrores({7.0, 7.1, 7.5, 14.2, 3.0, -1}, 1.0, 0.04);
+	CHECK_EQ(t.size(), (size_t)3);
+	if (t.size() == 3) {
+		CHECK(t[0].inicio_s == 3.0 && t[0].errores == 1);
+		CHECK(t[1].inicio_s == 7.0 && t[1].errores == 3);
+		CHECK(t[1].fin_s > 7.5);
+		CHECK(t[2].inicio_s == 14.2);
+	}
+	CHECK(agruparErrores({}).empty());
+
+	InformeVerificacion inf;
+	inf.hecho = true;
+	inf.tiene_video = true;
+	inf.fotogramas = 100;
+	inf.duracion_s = 10;
+	CHECK(inf.limpio());
+	CHECK(inf.resumenEs().find("sin errores") != std::string::npos);
+	inf.errores_video = 5;
+	inf.tramos_video = agruparErrores({2.0, 2.2}, 1.0, 0.5);
+	CHECK(!inf.limpio());
+	const std::string r = inf.resumenEs();
+	CHECK(r.find("0:02") != std::string::npos);
+	CHECK(r.find("5 de 105") != std::string::npos);
+	CHECK(inf.porcentajeConErrores() > 0 && inf.porcentajeConErrores() < 100);
+
+	// Un archivo que no se puede decodificar: informe "no hecho", sin colgarse.
+	InformeVerificacion malo = verificarVideo(dir.write("verificar ñ/roto.mp4", truncatedMp4()));
+	CHECK(!malo.hecho);
+	CHECK(!malo.error_es.empty());
+	CHECK(!verificarVideo(dir.path("verificar ñ/no existe.mp4")).hecho);
+}
+
 static void testTempDirs() {
 	fs::path kept;
 	{
@@ -763,6 +803,7 @@ int main() {
 	testPlantillas(dir);
 	testMemoria(dir);
 	testConfigYOnnx(dir);
+	testVerificar(dir);
 
 	std::cout << g_checks << " comprobaciones, " << g_failures << " fallos\n";
 	return g_failures == 0 ? 0 : 1;

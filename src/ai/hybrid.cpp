@@ -184,6 +184,8 @@ RescueOutcome rescueWithoutReference(const std::string& damaged_path,
 				   << " | Salida: " << out.repair.output_path << "\n"
 				   << "El original no se ha modificado. Revisa el vídeo reparado en VLC "
 				      "de principio a fin antes de borrar el original.";
+				if (out.repair.verificacion.hecho)
+					ss << "\n" << out.repair.verificacion.resumenEs();
 				out.summary_es = ss.str();
 				return out;
 			}
@@ -267,6 +269,8 @@ RescueOutcome rescueWithoutReference(const std::string& damaged_path,
 		if (s.mode == AiMode::Rescate)
 			ss << "\nNota: es un rescate parcial; revisa el vídeo reparado en VLC "
 			      "de principio a fin antes de borrar el original.";
+		if (out.repair.verificacion.hecho)
+			ss << "\n" << out.repair.verificacion.resumenEs();
 	} else {
 		ss << "La reparación con referencia sintética no terminó: " << out.repair.error_es
 		   << "\nPrueba con una referencia sana real del mismo dispositivo.";

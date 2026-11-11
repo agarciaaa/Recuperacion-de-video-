@@ -37,6 +37,8 @@
 
 class Mp4;
 
+extern bool g_verificar_salida;  // --sin-verificar lo pone a false
+
 struct RepairOptions {
 	bool ignore_unknown = false;        // -s
 	uint64_t step = 1;                  // tamano de paso de -s
@@ -44,6 +46,9 @@ struct RepairOptions {
 	// Sugerencia de la IA (local, ONNX, LM Studio o externa) para la
 	// busqueda de estrategias de repairFileWithAutoRetry: se prueba
 	// antes que el orden por defecto. No se aplica al nucleo.
+	// Comprobar el resultado decodificandolo (verificar.h). Por defecto
+	// si; --sin-verificar lo apaga (g_verificar_salida).
+	bool verificar = true;
 	bool hint_set = false;
 	bool hint_s = false;
 	bool hint_dyn = false;

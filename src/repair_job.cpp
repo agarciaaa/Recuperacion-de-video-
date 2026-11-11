@@ -329,6 +329,12 @@ RepairOutcome repairFileWithAutoRetry(const std::string& ref_path,
 		ss << "\n  Estrategias probadas:";
 		for (const auto& l : out.intentos_es) ss << "\n    - " << l;
 	}
+	// Comprobacion: decodificar la salida y decir si se ve bien y
+	// donde no (antes solo se daba la duracion y el %).
+	if (run.verificar) {
+		out.verificacion = verificarVideo(out.output_path);
+		ss << "\n  " << out.verificacion.resumenEs();
+	}
 	out.message_es = ss.str();
 
 	return out;

@@ -81,6 +81,9 @@ fps, mismo códec — y la aplica a los datos del vídeo dañado.
 ./untrunc --sin-referencia danado.mp4
 ./untrunc --sin-referencia --perfil generico_h264_1080p30 danado.mp4
 
+# Comprobar si un vídeo se ve bien y dónde tiene errores:
+./untrunc --verificar video_reparado.mp4
+
 # Ver qué texto se enviaría a una IA, sin enviar nada:
 ./untrunc --solo-diagnostico danado.mp4
 
@@ -99,6 +102,27 @@ Perfiles disponibles (`profiles/profiles.json`):
 `samsung_h264_1080p30`, `gopro_h264_1080p60`, `gopro_hevc_4k30`,
 `dji_h264_4k30`, `sony_xavc_1080p30`, `canon_hevc_4k30`,
 `obs_x264_1080p30`.
+
+## Comprobación del vídeo reparado
+
+Al terminar, el vídeo reparado se decodifica entero (imagen y sonido) y
+el resumen dice si se ve bien o en qué segundos hay errores:
+
+```
+Comprobación: hay partes con errores.
+    Imagen con errores en: 0:07, 0:14 (14 de 591 fotogramas; ~3% del vídeo)
+```
+
+Usa las mismas bibliotecas de FFmpeg del programa, así que no necesita
+`ffmpeg.exe`. Para un vídeo de 20 s tarda menos de un segundo. Para
+desactivarla, usa `--sin-verificar`. Para comprobar cualquier vídeo sin
+reparar nada:
+
+```shell
+./untrunc --verificar video.mp4
+```
+
+Códigos de salida: 0 sin errores, 3 con errores, 1 si no se pudo abrir.
 
 ## Cómo ayuda la IA a reparar (no solo a diagnosticar)
 
