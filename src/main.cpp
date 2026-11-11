@@ -308,6 +308,8 @@ void usage() {
 	     << "    ni escribe ningun video) y guarda solo numeros\n"
 	     << "--evaluar-resinc <modelo.txt|-> [--semillas N] <sano.mp4>... - mide cuantos\n"
 	     << "    fotogramas reales y falsos se recuperan sin y con el modelo\n"
+	     << "--evaluar-audio [--semillas N] <sano.mp4>... - mide cuanto audio AAC se\n"
+	     << "    recupera y el desfase audio-video tras danos simulados en memoria\n"
 	     << "--sin-resinc - no intentar volver a encontrar el video tras una zona danada\n"
 	     << "              (por defecto se hace; con ONNX activado, el modelo lo confirma)\n"
 	     << "--verificar <video> - solo comprueba un video (reparado o no) y dice si hay\n"
@@ -568,6 +570,23 @@ int main(int argc, char *argv[]) {
 			     << "  untrunc --plantilla " << r.info.id << " <dañado.mp4>\n"
 			     << "o deja que --sin-referencia la elija sola.\n";
 			return 0;
+		}
+		if (a == "--evaluar-audio") {
+			int semillas = 3;
+			std::vector<std::string> sanos;
+			for (int k = j + 1; k < argc; k++) {
+				std::string x = argv[k];
+				if (x == "--semillas" && k + 1 < argc) semillas = std::max(1, atoi(argv[++k]));
+				else sanos.push_back(x);
+			}
+			if (sanos.empty()) {
+				cerr << "Uso: untrunc --evaluar-audio [--semillas N] <sano.mp4>...\n";
+				return 1;
+			}
+			ResultadoAudio r;
+			int rc = evaluarAudio(sanos, semillas, r);
+			cout << r.resumen_es;
+			return rc;
 		}
 		if (a == "--dataset-resinc" || a == "--evaluar-resinc") {
 			const bool dataset = a == "--dataset-resinc";

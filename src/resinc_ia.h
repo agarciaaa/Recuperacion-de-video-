@@ -50,6 +50,29 @@ int generarDatasetResinc(const std::vector<std::string>& sanos, const std::strin
 int evaluarResinc(const std::vector<std::string>& sanos, const std::string& ruta_modelo,
                   int semillas, ResultadoResinc& r);
 
+// Audio AAC: con los mismos escenarios (y uno sin dano), cuantos bloques
+// de audio recuperables (no destruidos por el dano) se recuperan bien, y
+// cuantos se recuperan en un sitio que no era un bloque de audio.
+struct ResultadoAudio {
+	struct PorTipo {
+		long reparaciones = 0;
+		long audio_posibles = 0, audio_bien = 0, audio_falsos = 0;
+		long video_posibles = 0, video_bien = 0;
+		// Perdidos (recuperables) entre el final de una zona danada y lo
+		// primero que se volvio a reconocer despues; y bytes saltados ahi.
+		long audio_antes_reenganche = 0, video_antes_reenganche = 0;
+		long zonas = 0;
+		double bytes_hasta_reenganche = 0;
+		// Desfase audio-video al final del video reparado (ms): cuanto se
+		// adelanto el audio respecto a la imagen por lo que se perdio.
+		double desfase_abs_ms = 0, desfase_max_ms = 0;
+	};
+	int videos = 0, escenarios = 0, fallos = 0;
+	PorTipo por_tipo[6];  // 0 = sin dano, 1.. = tipos de dano
+	std::string resumen_es;
+};
+int evaluarAudio(const std::vector<std::string>& sanos, int semillas, ResultadoAudio& r);
+
 // Carga un modelo y lo conecta al nucleo (g_resync_scorer/umbral). Con
 // exigir_activo, rechaza un modelo sin "activo 1".
 bool activarModeloResinc(const std::string& ruta, bool exigir_activo, std::string& why_es);

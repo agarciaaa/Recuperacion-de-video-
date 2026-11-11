@@ -140,9 +140,13 @@ public:
 	// Datos de entrenamiento de la resincronizacion (resinc_ia.cpp):
 	// tras parseOk, inicio absoluto de cada fotograma de video del
 	// archivo sano y el rango que ocupan las muestras; tras repair, inicio
-	// absoluto de cada fotograma de video recuperado.
-	void verdadMuestras(std::vector<int64_t>& video, int64_t& ini, int64_t& fin);
-	void recuperadasVideo(std::vector<int64_t>& video);
+	// absoluto de cada fotograma de video recuperado. Con `audio`, lo mismo
+	// para los bloques de audio AAC (mp4a).
+	void verdadMuestras(std::vector<int64_t>& video, int64_t& ini, int64_t& fin,
+	                    std::vector<int64_t>* audio = nullptr);
+	void recuperadasVideo(std::vector<int64_t>& video, std::vector<int64_t>* audio = nullptr);
+	// Duracion (ms) de la pista de video y de la de audio AAC (0 si no hay).
+	void duracionesMs(double& video_ms, double& audio_ms);
 
 	// Chunks with constant sample size
 	class Chunk : public Track::Chunk {

@@ -2235,19 +2235,22 @@ void Mp4::addMatch(off_t& offset, FrameInfo& match) {
 	}
 }
 
-void Mp4::verdadMuestras(std::vector<int64_t>& video, int64_t& ini, int64_t& fin) {
+void Mp4::verdadMuestras(std::vector<int64_t>& video, int64_t& ini, int64_t& fin,
+                         std::vector<int64_t>* audio) {
 	video.clear();
+	if (audio) audio->clear();
 	ini = std::numeric_limits<int64_t>::max();
 	fin = 0;
 	for (auto& t : tracks_) {
 		if (t.is_dummy_) continue;
 		const bool es_video = t.codec_.name_ == "avc1" || t.codec_.name_ == "hvc1";
+		std::vector<int64_t>* destino = es_video ? &video : t.codec_.name_ == "mp4a" ? audio : nullptr;
 		uint idx = 0;
 		for (auto& c : t.chunks_) {
 			int64_t off = c.off_;
 			for (int k = 0; k < c.n_samples_; k++, idx++) {
 				const int sz = t.getOrigSize(idx);
-				if (es_video) video.push_back(off);
+				if (destino) destino->push_back(off);
 				ini = std::min(ini, off);
 				fin = std::max(fin, off + sz);
 				off += sz;
@@ -2255,27 +2258,46 @@ void Mp4::verdadMuestras(std::vector<int64_t>& video, int64_t& ini, int64_t& fin
 		}
 	}
 	std::sort(video.begin(), video.end());
+	if (audio) std::sort(audio->begin(), audio->end());
 	if (fin <= ini) ini = fin = 0;
 }
 
-void Mp4::recuperadasVideo(std::vector<int64_t>& video) {
+void Mp4::duracionesMs(double& video_ms, double& audio_ms) {
+	video_ms = audio_ms = 0;
+	for (auto& t : tracks_) {
+		if (t.is_dummy_) continue;
+		if (t.codec_.name_ == "avc1" || t.codec_.name_ == "hvc1") video_ms = t.getDurationInMs();
+		else if (t.codec_.name_ == "mp4a") audio_ms = t.getDurationInMs();
+	}
+}
+
+void Mp4::recuperadasVideo(std::vector<int64_t>& video, std::vector<int64_t>* audio) {
 	video.clear();
+	if (audio) audio->clear();
 	if (!current_mdat_) return;
 	const int64_t base = current_mdat_->contentStart();
 	for (auto& t : tracks_) {
-		if (t.is_dummy_ || (t.codec_.name_ != "avc1" && t.codec_.name_ != "hvc1")) continue;
+		if (t.is_dummy_) continue;
+		const bool es_video = t.codec_.name_ == "avc1" || t.codec_.name_ == "hvc1";
+		std::vector<int64_t>* destino = es_video ? &video : t.codec_.name_ == "mp4a" ? audio : nullptr;
+		if (!destino) continue;
 		std::vector<Track::Chunk> chunks = t.chunks_;
 		if (t.current_chunk_.n_samples_) chunks.push_back(t.current_chunk_);
 		size_t idx = 0;
 		for (auto& c : chunks) {
 			int64_t off = base + c.off_;
 			for (int k = 0; k < c.n_samples_ && idx < t.sizes_.size(); k++, idx++) {
-				video.push_back(off);
+				destino->push_back(off);
 				off += t.sizes_[idx];
 			}
 		}
 	}
 	std::sort(video.begin(), video.end());
+	video.erase(std::unique(video.begin(), video.end()), video.end());
+	if (audio) {
+		std::sort(audio->begin(), audio->end());
+		audio->erase(std::unique(audio->begin(), audio->end()), audio->end());
+	}
 }
 
 int Mp4::chainLength(off_t offset, int max) {

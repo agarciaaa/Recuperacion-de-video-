@@ -174,12 +174,14 @@ std::string textoExcepcion(std::exception_ptr e) {
 
 // Verdad del video sano: inicios de fotogramas de video y rango de datos.
 bool leerVerdad(const std::string& sano, std::vector<int64_t>& verdad, int64_t& ini, int64_t& fin,
-                std::string& err) {
+                std::string& err, std::vector<int64_t>* audio = nullptr, double* dv_ms = nullptr,
+                double* da_ms = nullptr) {
 	try {
 		Mp4 mp4;
 		g_mp4 = &mp4;
 		mp4.parseOk(sano);
-		mp4.verdadMuestras(verdad, ini, fin);
+		mp4.verdadMuestras(verdad, ini, fin, audio);
+		if (dv_ms && da_ms) mp4.duracionesMs(*dv_ms, *da_ms);
 		g_mp4 = nullptr;
 	} catch (...) {
 		g_mp4 = nullptr;
@@ -196,7 +198,8 @@ bool leerVerdad(const std::string& sano, std::vector<int64_t>& verdad, int64_t& 
 // Repara `sano` viendolo danado con `zonas`; devuelve los inicios de los
 // fotogramas de video recuperados.
 bool simular(const std::string& sano, const std::vector<ZonaDanoSimulado>& zonas,
-             std::vector<int64_t>& recuperadas, std::string& err) {
+             std::vector<int64_t>& recuperadas, std::string& err,
+             std::vector<int64_t>* audio = nullptr) {
 	try {
 		Mp4 mp4;
 		g_mp4 = &mp4;
@@ -211,7 +214,7 @@ bool simular(const std::string& sano, const std::vector<ZonaDanoSimulado>& zonas
 		                              : sano.substr(0, barra + 1) + "./" + sano.substr(barra + 1);
 		mp4.repair(alias);
 		g_dano_simulado_activo = false;
-		mp4.recuperadasVideo(recuperadas);
+		mp4.recuperadasVideo(recuperadas, audio);
 		g_mp4 = nullptr;
 	} catch (...) {
 		g_dano_simulado_activo = false;
@@ -438,6 +441,114 @@ int evaluarResinc(const std::vector<std::string>& sanos, const std::string& ruta
 		   << " falsos.";
 	r.resumen_es = ss.str();
 	return 0;
+}
+
+int evaluarAudio(const std::vector<std::string>& sanos, int semillas, ResultadoAudio& r) {
+	std::ostringstream log;
+	{
+		GlobalesSimulacion globales;
+		for (size_t v = 0; v < sanos.size(); v++) {
+			std::vector<int64_t> vv, va;
+			int64_t ini = 0, fin = 0;
+			std::string err;
+			double ms_video = 0, ms_audio = 0;
+			if (!leerVerdad(sanos[v], vv, ini, fin, err, &va, &ms_video, &ms_audio)) {
+				log << "  video " << v << " (" << nombreBase(sanos[v]) << "): se omite, " << err << "\n";
+				continue;
+			}
+			if (va.empty()) {
+				log << "  video " << v << " (" << nombreBase(sanos[v]) << "): se omite, sin audio AAC\n";
+				continue;
+			}
+			r.videos++;
+			// Escenario -1: sin dano (lo que se pierde aunque el archivo este sano).
+			for (int t = -1; t < kNTiposDano; t++)
+				for (int s = 1; s <= (t < 0 ? 1 : semillas); s++) {
+					const auto zonas = t < 0 ? std::vector<ZonaDanoSimulado>{}
+					                         : escenario(t, 2000 + s, ini, fin);
+					// Lo que el dano destruye no se puede recuperar: no cuenta.
+					auto intacto = [&](int64_t o) {
+						for (const auto& z : zonas)
+							if (o + 16 > z.ini && o < z.fin) return false;
+						return true;
+					};
+					std::vector<int64_t> rv, ra;
+					r.escenarios++;
+					if (!simular(sanos[v], zonas, rv, err, &ra)) {
+						r.fallos++;
+						continue;
+					}
+					auto& f = r.por_tipo[t + 1];
+					f.reparaciones++;
+					if (!vv.empty() && !va.empty()) {
+						const double dv = ms_video / vv.size(), da = ms_audio / va.size();
+						const double desfase = ((double)va.size() - ra.size()) * da -
+						                       ((double)vv.size() - rv.size()) * dv;
+						f.desfase_abs_ms += std::fabs(desfase);
+						f.desfase_max_ms = std::max(f.desfase_max_ms, std::fabs(desfase));
+					}
+					// Para cada zona: lo primero recuperado despues de ella.
+					std::vector<int64_t> todo(rv);
+					todo.insert(todo.end(), ra.begin(), ra.end());
+					std::sort(todo.begin(), todo.end());
+					std::vector<int64_t> reenganche;
+					for (const auto& z : zonas) {
+						auto it = std::lower_bound(todo.begin(), todo.end(), z.fin);
+						reenganche.push_back(it == todo.end() ? fin : *it);
+						f.zonas++;
+						f.bytes_hasta_reenganche += (double)(reenganche.back() - z.fin);
+					}
+					auto antesDeReenganchar = [&](int64_t o) {
+						for (size_t k = 0; k < zonas.size(); k++)
+							if (o >= zonas[k].fin && o < reenganche[k]) return true;
+						return false;
+					};
+					for (int64_t o : va)
+						if (intacto(o)) {
+							f.audio_posibles++;
+							if (esVerdad(ra, o)) f.audio_bien++;
+							else if (antesDeReenganchar(o)) f.audio_antes_reenganche++;
+						}
+					for (int64_t o : ra)
+						if (!esVerdad(va, o)) f.audio_falsos++;
+					for (int64_t o : vv)
+						if (intacto(o)) {
+							f.video_posibles++;
+							if (esVerdad(rv, o)) f.video_bien++;
+							else if (antesDeReenganchar(o)) f.video_antes_reenganche++;
+						}
+				}
+		}
+	}
+	std::ostringstream ss;
+	ss << "Audio (AAC): " << r.videos << " vídeos con audio, " << r.escenarios << " reparaciones ("
+	   << r.fallos << " fallidas).\n" << log.str()
+	   << "Solo cuenta lo que el daño no destruyó (lo recuperable).\n";
+	const char* nombres[] = {"sin daño", "basura", "ceros", "copia", "denso", "mixto"};
+	for (int i = 0; i <= kNTiposDano; i++) {
+		const auto& f = r.por_tipo[i];
+		if (!f.reparaciones) continue;
+		auto pct = [](long a, long b) { return b ? 100.0 * a / b : 0.0; };
+		char buf[256];
+		snprintf(buf, sizeof buf,
+		         "  %-9s audio %6ld/%-6ld (%5.1f %%), falsos %4ld | vídeo %6ld/%-6ld (%5.1f %%)\n",
+		         nombres[i], f.audio_bien, f.audio_posibles, pct(f.audio_bien, f.audio_posibles),
+		         f.audio_falsos, f.video_bien, f.video_posibles, pct(f.video_bien, f.video_posibles));
+		ss << buf;
+		if (f.zonas) {
+			snprintf(buf, sizeof buf,
+			         "            perdidos justo tras la zona: audio %ld, vídeo %ld; "
+			         "%.0f bytes de media hasta reenganchar\n",
+			         f.audio_antes_reenganche, f.video_antes_reenganche,
+			         f.bytes_hasta_reenganche / f.zonas);
+			ss << buf;
+		}
+		snprintf(buf, sizeof buf, "            desfase audio-vídeo al final: media %.0f ms, máximo %.0f ms\n",
+		         f.desfase_abs_ms / f.reparaciones, f.desfase_max_ms);
+		ss << buf;
+	}
+	r.resumen_es = ss.str();
+	return r.videos > 0 ? 0 : 1;
 }
 
 bool activarModeloResinc(const std::string& ruta, bool exigir_activo, std::string& why_es) {
