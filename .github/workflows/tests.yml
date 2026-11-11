@@ -12,17 +12,30 @@ jobs:
     runs-on: ubuntu-24.04
     # Si el espejo de Ubuntu no responde, apt-get se quedaba colgado
     # ~45 min; mejor fallar pronto y relanzar.
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
+      # Primero el espejo de Azure del runner; si no responde (pasó en
+      # noviembre de 2026: "Ign: azure.archive.ubuntu.com" y apt colgado),
+      # se cambia al servidor principal de Ubuntu y se reintenta.
       - name: Install dependencies
-        timeout-minutes: 10
+        timeout-minutes: 15
         run: |
-          APT_OPTS="-o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
-          sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y --no-install-recommends \
-            build-essential libavformat-dev libavcodec-dev libavutil-dev
+          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+          PKGS="build-essential libavformat-dev libavcodec-dev libavutil-dev"
+          if ! (sudo timeout 240 apt-get $APT_OPTS update &&
+                sudo timeout 300 apt-get $APT_OPTS install -y --no-install-recommends $PKGS); then
+            echo "::warning::El espejo de Azure no responde; se usa archive.ubuntu.com"
+            echo "http://archive.ubuntu.com/ubuntu/" | sudo tee /etc/apt/apt-mirrors.txt
+            sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
+              /etc/apt/sources.list.d/*.sources /etc/apt/sources.list 2>/dev/null || true
+            # Si el timeout corto una instalacion a medias, dpkg queda
+            # "interrumpido" y el reintento fallaria sin esto.
+            sudo dpkg --configure -a || true
+            sudo apt-get $APT_OPTS update
+            sudo apt-get $APT_OPTS install -y --no-install-recommends $PKGS
+          fi
 
       - name: Build
         run: make -j"$(nproc)" FF_VER=shared
