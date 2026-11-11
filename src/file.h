@@ -35,6 +35,20 @@ extern "C" {
 
 #include "common.h"
 
+// Dano simulado EN MEMORIA (solo para generar datos de entrenamiento de
+// la resincronizacion, ver resinc_ia.h): un FileRead abierto mientras
+// g_dano_simulado_activo es true ve estas zonas cambiadas al leer; el
+// archivo en disco no se toca y no se escribe ninguna copia.
+struct ZonaDanoSimulado {
+	enum Tipo { Aleatorio = 0, Ceros = 1, Copia = 2 };
+	int64_t ini = 0, fin = 0;  // posiciones absolutas en el archivo [ini, fin)
+	int tipo = Aleatorio;
+	int64_t origen = 0;        // Copia: de donde se copian los bytes
+	uint32_t semilla = 1;
+};
+extern std::vector<ZonaDanoSimulado> g_dano_simulado;
+extern bool g_dano_simulado_activo;
+
 class FileRead {
 public:
 	FileRead(const std::string& filename);
@@ -69,6 +83,9 @@ public:
 
 protected:
 	size_t fillBuffer(off_t location);
+	// Aplica g_dano_simulado a n bytes leidos de la posicion `pos`.
+	void danarLeido(uchar* dst, off_t pos, size_t n);
+	bool danar_ = false;
 	uchar* buffer_;
 	off_t size_;
 	FILE* file_ = nullptr;

@@ -69,8 +69,12 @@ Mp4* g_mp4 = nullptr;
 void (*g_onProgress)(int) = nullptr;
 void (*g_onStatus)(const string&) = nullptr;
 bool g_resync_enabled = true;
-double (*g_resync_scorer)(const unsigned char* data, size_t len) = nullptr;
+double (*g_resync_scorer)(const float* f, int n) = nullptr;
+double g_resync_umbral = 1.1;  // > 1: nunca, hasta que un modelo validado lo fije
+void (*g_resync_sink)(int64_t off_abs, const char* codec, int cadena, const float* f, int n) = nullptr;
 int g_resync_count = 0;
+int g_resync_ia_count = 0;
+bool g_solo_simular = false;
 int64_t g_range_start = kRangeUnset;
 int64_t g_range_end = kRangeUnset;
 std::string g_dst_path;

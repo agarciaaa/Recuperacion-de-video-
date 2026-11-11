@@ -137,6 +137,12 @@ public:
 	double premature_percentage_ = 0;
 	// % del mdat que no se reconocio (secuencias desconocidas), tras saveVideo.
 	double unknown_percentage_ = 0;
+	// Datos de entrenamiento de la resincronizacion (resinc_ia.cpp):
+	// tras parseOk, inicio absoluto de cada fotograma de video del
+	// archivo sano y el rango que ocupan las muestras; tras repair, inicio
+	// absoluto de cada fotograma de video recuperado.
+	void verdadMuestras(std::vector<int64_t>& video, int64_t& ini, int64_t& fin);
+	void recuperadasVideo(std::vector<int64_t>& video);
 
 	// Chunks with constant sample size
 	class Chunk : public Track::Chunk {
@@ -340,11 +346,16 @@ private:
 	// (AUD); muchas camaras no los escriben y el nucleo no volvia a
 	// encontrar el video tras la basura. tryResync acepta un fotograma
 	// "normal" si (1) el emparejado laxo y el tamano encajan, (2) los
-	// 2 siguientes encadenan. (El modelo ONNX no decide: ver common.h.)
+	// 2 siguientes encadenan; si encajan menos, decide el modelo de
+	// resincronizacion, si hay uno validado (ver common.h, resinc_ia.h).
 	bool tryResync(off_t& offset);
 	// Cuantos fotogramas seguidos encajan desde offset (max si llega
 	// justo al final del mdat).
 	int chainLength(off_t offset, int max);
+	// Caracteristicas del candidato para el modelo (ver resinc_ia.cpp,
+	// kResincNombres: mismo orden).
+	void resyncFeatures(off_t offset, int track_idx, int64_t length, bool keyframe,
+	                    int cadena, float* f);
 
 	bool tryAll(off_t& offset) {
 		if (shouldPreferChunkPrediction()) {

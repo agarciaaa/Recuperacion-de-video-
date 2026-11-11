@@ -127,16 +127,6 @@ bool onnxModelUsable(const std::string& dir, std::string& why_es);
 std::string onnxModeloEnUso(const std::string& ruta_configurada, const char* argv0,
                             OnnxModelInfo& info, std::string& aviso_es);
 
-// Conecta el modelo ONNX en uso al nucleo de reparacion
-// (g_resync_scorer, ver Mp4::tryResync): tras una zona danada, el
-// nucleo solo vuelve a aceptar fotogramas que el modelo reconoce como
-// inicio. Se carga una vez y se reutiliza mientras la ruta del modelo
-// no cambie. Devuelve false (y why_es) si no hay modelo usable; en ese
-// caso el nucleo trabaja como siempre.
-bool activarResincronizacionOnnx(const AiConfig& cfg, std::string& modelo_es,
-                                 std::string& why_es);
-void desactivarResincronizacionOnnx();
-
 class OnnxProvider : public IAiProvider {
 public:
 	explicit OnnxProvider(const AiConfig& cfg, const char* argv0 = nullptr);

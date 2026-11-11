@@ -22,6 +22,7 @@
 #include <iostream>
 #include <iomanip>  // setprecision
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 
 extern "C" {
@@ -471,6 +472,7 @@ void Mp4::setDuration() {
 }
 
 void Mp4::saveVideo(const string& filename) {
+	if (g_solo_simular) return;  // datos de entrenamiento: no se escribe nada
 	/* we save all atom except:
 	  cslg: would need to be recalculated (from ctts)
 	  stps: partial sync, same as sync
@@ -2233,6 +2235,49 @@ void Mp4::addMatch(off_t& offset, FrameInfo& match) {
 	}
 }
 
+void Mp4::verdadMuestras(std::vector<int64_t>& video, int64_t& ini, int64_t& fin) {
+	video.clear();
+	ini = std::numeric_limits<int64_t>::max();
+	fin = 0;
+	for (auto& t : tracks_) {
+		if (t.is_dummy_) continue;
+		const bool es_video = t.codec_.name_ == "avc1" || t.codec_.name_ == "hvc1";
+		uint idx = 0;
+		for (auto& c : t.chunks_) {
+			int64_t off = c.off_;
+			for (int k = 0; k < c.n_samples_; k++, idx++) {
+				const int sz = t.getOrigSize(idx);
+				if (es_video) video.push_back(off);
+				ini = std::min(ini, off);
+				fin = std::max(fin, off + sz);
+				off += sz;
+			}
+		}
+	}
+	std::sort(video.begin(), video.end());
+	if (fin <= ini) ini = fin = 0;
+}
+
+void Mp4::recuperadasVideo(std::vector<int64_t>& video) {
+	video.clear();
+	if (!current_mdat_) return;
+	const int64_t base = current_mdat_->contentStart();
+	for (auto& t : tracks_) {
+		if (t.is_dummy_ || (t.codec_.name_ != "avc1" && t.codec_.name_ != "hvc1")) continue;
+		std::vector<Track::Chunk> chunks = t.chunks_;
+		if (t.current_chunk_.n_samples_) chunks.push_back(t.current_chunk_);
+		size_t idx = 0;
+		for (auto& c : chunks) {
+			int64_t off = base + c.off_;
+			for (int k = 0; k < c.n_samples_ && idx < t.sizes_.size(); k++, idx++) {
+				video.push_back(off);
+				off += t.sizes_[idx];
+			}
+		}
+	}
+	std::sort(video.begin(), video.end());
+}
+
 int Mp4::chainLength(off_t offset, int max) {
 	const off_t end = current_mdat_->contentSize();
 	for (int k = 0; k < max; k++) {
@@ -2254,22 +2299,80 @@ int Mp4::chainLength(off_t offset, int max) {
 }
 
 namespace {
-// Diagnostico (desarrollo): si existe UNTRUNC_VOLCAR_RESINC=<archivo>,
-// cada candidato de tryResync se anota como
-// "offset_absoluto<TAB>codec<TAB>cadena<TAB>p_modelo" (p=-1 sin modelo).
-// Sirve para medir contra la verdad conocida de un video sano danado
-// a proposito y para sacar ejemplos dificiles para entrenar ONNX.
-FILE* volcadoResinc() {
-	static FILE* f = nullptr;
-	static bool mirado = false;
-	if (!mirado) {
-		mirado = true;
-		const char* p = getenv("UNTRUNC_VOLCAR_RESINC");
-		if (p && *p) f = fopen(p, "a");
+// Fraccion de ceros y entropia (bits por byte) de n bytes.
+void estadisticaBytes(const uchar* p, int n, double& ceros, double& entropia) {
+	int cuenta[256] = {0};
+	int z = 0;
+	for (int i = 0; i < n; i++) {
+		cuenta[p[i]]++;
+		if (!p[i]) z++;
 	}
-	return f;
+	ceros = n ? (double)z / n : 0;
+	entropia = 0;
+	for (int c = 0; c < 256; c++)
+		if (cuenta[c]) {
+			double q = (double)cuenta[c] / n;
+			entropia -= q * std::log2(q);
+		}
 }
 } // namespace
+
+void Mp4::resyncFeatures(off_t offset, int track_idx, int64_t length, bool keyframe,
+                         int cadena, float* f) {
+	std::fill(f, f + kResincNFeat, 0.0f);
+	auto& t = tracks_[track_idx];
+	const bool hevc = t.codec_.name_ == "hvc1";
+	const off_t end = current_mdat_->contentSize();
+
+	f[0] = std::min(cadena, 4) / 4.0f;
+	f[1] = cadena == 0 ? 1.0f : 0.0f;
+	const double media = std::max(1, t.ss_stats_.averageSize());
+	f[2] = (float)(std::max(-8.0, std::min(8.0, std::log2((double)length / media))) / 8.0);
+	f[3] = keyframe ? 1.0f : 0.0f;
+
+	// Tipo del primer NAL: corte normal, IDR/IRAP, SEI, parametros, AUD, otro.
+	const uchar* p = current_mdat_->getFragment(offset, 8);
+	int tipo;
+	if (hevc) {
+		int nt = (p[4] >> 1) & 0x3f;
+		tipo = nt <= 9 ? 0 : (nt >= 16 && nt <= 21) ? 1 : (nt == 39 || nt == 40) ? 2
+		     : (nt >= 32 && nt <= 34) ? 3 : nt == 35 ? 4 : 5;
+	} else {
+		int nt = p[4] & 0x1f;
+		tipo = nt == 1 ? 0 : nt == 5 ? 1 : nt == 6 ? 2 : (nt == 7 || nt == 8) ? 3 : nt == 9 ? 4 : 5;
+	}
+	f[4 + tipo] = 1.0f;  // f[4]..f[9]
+
+	f[10] = (float)(std::log2(1.0 + (double)unknown_length_) / 32.0);
+
+	// Lo que hay justo despues del fotograma.
+	const off_t tras = offset + length;
+	double ceros = 0, ent = 0;
+	if (tras < end) {
+		const int n = (int)std::min<off_t>(64, end - tras);
+		const uchar* q = current_mdat_->getFragment(tras, n);
+		estadisticaBytes(q, n, ceros, ent);
+		bool laxo = false;
+		if (n >= 8)
+			for (auto& o : tracks_)
+				if (!o.is_dummy_ && o.codec_.matchSample(q)) laxo = true;
+		f[13] = laxo ? 1.0f : 0.0f;
+	} else {
+		f[13] = 1.0f;  // acaba justo al final del mdat
+	}
+	f[11] = (float)ceros;
+	f[12] = (float)(ent / 6.0);
+
+	// El propio fotograma.
+	{
+		const int n = (int)std::min<int64_t>(256, std::min<int64_t>(length, end - offset));
+		const uchar* q = current_mdat_->getFragment(offset, n);
+		estadisticaBytes(q, n, ceros, ent);
+		f[14] = (float)ceros;
+		f[15] = (float)(ent / 8.0);
+	}
+	f[16] = t.ss_stats_.exceedsAllowed((uint)length, keyframe) ? 1.0f : 0.0f;
+}
 
 bool Mp4::tryResync(off_t& offset) {
 	if (!unknown_length_ || !g_resync_enabled) return false;
@@ -2284,26 +2387,29 @@ bool Mp4::tryResync(off_t& offset) {
 		if (!t.codec_.matchSample(start)) continue;
 		FrameInfo m = predictSize(start, i, offset);
 		if (!m) continue;
-
-		// Ventana para el modelo (se copia: loadFragment puede mover el buffer).
-		unsigned char win[256] = {0};
-		const int n = (int)std::min<off_t>(256, end - offset);
-		const uchar* w = current_mdat_->getFragment(offset, n);
-		std::copy(w, w + n, win);
+		const bool keyframe = t.codec_.was_keyframe_;  // chainLength lo pisa
 
 		off_t next = offset + m.length_ + m.pad_afterwards_;
-		const int cadena = chainLength(next, volcadoResinc() ? 4 : 2);
-		if (FILE* f = volcadoResinc()) {
-			double pv = g_resync_scorer ? g_resync_scorer(win, (size_t)n) : -1.0;
-			fprintf(f, "%lld\t%s\t%d\t%.5f\n",
-			        (long long)(current_mdat_->contentStart() + offset), cn.c_str(), cadena, pv);
-			fflush(f);
+		const int cadena = chainLength(next, g_resync_sink ? 4 : 2);
+		bool por_modelo = false;
+		if (g_resync_sink || (cadena < 2 && g_resync_scorer)) {
+			float f[kResincNFeat];
+			resyncFeatures(offset, i, m.length_, keyframe, cadena, f);
+			if (g_resync_sink)
+				g_resync_sink((int64_t)(current_mdat_->contentStart() + offset), cn.c_str(), cadena,
+				              f, kResincNFeat);
+			if (cadena < 2 && g_resync_scorer) {
+				const double p = g_resync_scorer(f, kResincNFeat);
+				logg(V, "tryResync: cadena ", cadena, " en ", offToStr(offset), ", modelo ", p, "\n");
+				por_modelo = p >= g_resync_umbral;
+			}
 		}
-		if (cadena < 2) continue;
+		if (cadena < 2 && !por_modelo) continue;
 
 		loadFragment(offset);  // deja current_maxlength_ como estaba para addMatch
-		logg(V, "tryResync: ", cn, " en ", offToStr(offset), "\n");
+		logg(V, "tryResync: ", cn, " en ", offToStr(offset), por_modelo ? " (modelo)" : "", "\n");
 		g_resync_count++;
+		if (por_modelo) g_resync_ia_count++;
 		addMatch(offset, m);
 		return true;
 	}
@@ -2456,6 +2562,7 @@ void Mp4::repair(const string& filename) {
 	}
 
 	g_resync_count = 0;
+	g_resync_ia_count = 0;
 	while (chkOffset(offset)) {
 		if (tryAll(offset)) continue;
 		if (tryResync(offset)) continue;

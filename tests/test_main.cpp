@@ -33,6 +33,7 @@
 #include "../src/common.h"
 #include "../src/repair_job.h"
 #include "../src/repair_options.h"
+#include "../src/resinc_ia.h"
 #include "../src/plantillas.h"
 #include "../src/memoria.h"
 #include "../src/verificar.h"
@@ -875,6 +876,89 @@ static void testResincronizacion(const TempDir& dir) {
 	ponerEnv("USERPROFILE", old_up);
 }
 
+// Modelo de resincronizacion (resinc_ia.h): datos de entrenamiento con
+// dano solo en memoria, evaluacion y carga del modelo con su marca activo.
+static void testModeloResinc(const TempDir& dir) {
+	std::vector<std::string> sanos;
+	std::vector<Bytes> originales;
+	for (const char* nombre : {"h264.mp4", "hevc.mp4", "h264_aac.mp4"}) {
+		Bytes b = leerFixture(nombre);
+		if (b.size() < 50000) continue;
+		sanos.push_back(dir.write(std::string("modelo resinc ñ/") + nombre, b));
+		originales.push_back(b);
+	}
+	CHECK_EQ(sanos.size(), (size_t)3);
+	if (sanos.size() != 3) return;
+
+	const std::string tsv = dir.path("modelo resinc ñ/datos.tsv");
+	ResultadoResinc r;
+	CHECK_EQ(generarDatasetResinc(sanos, tsv, 2, r), 0);
+	CHECK_EQ(r.videos, 3);
+	CHECK_EQ(r.fallos, 0);
+	CHECK(r.positivos > 0);
+	CHECK(r.negativos > 0);
+	CHECK(r.filas_sin_cadena > 0);
+	// El dano fue solo en memoria: los videos siguen intactos y en la
+	// carpeta no aparece ningun archivo nuevo aparte del TSV.
+	for (size_t i = 0; i < sanos.size(); i++) {
+		std::ifstream f(upath::toPath(sanos[i]), std::ios::binary);
+		Bytes leido((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+		CHECK(leido == originales[i]);
+	}
+	int archivos = 0;
+	for (auto& e : fs::directory_iterator(upath::toPath(dir.path("modelo resinc ñ")))) {
+		(void)e;
+		archivos++;
+	}
+	CHECK_EQ(archivos, 4);
+	// El TSV solo tiene numeros: ni rutas ni nombres de archivo.
+	{
+		std::ifstream f(upath::toPath(tsv), std::ios::binary);
+		std::string todo((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+		CHECK(todo.rfind("video\ttipo\tsemilla\tetiqueta\tcadena\tcodec\t", 0) == 0);
+		CHECK(todo.find(".mp4") == std::string::npos);
+		CHECK(todo.find("resinc ñ") == std::string::npos);
+	}
+	CHECK(!g_dano_simulado_activo);
+	CHECK(!g_solo_simular);
+	CHECK(g_resync_sink == nullptr);
+
+	// Modelos: escribe uno que acepta todo (p ~ 1) con la marca dada.
+	auto modelo = [&](const std::string& nombre, int activo, int nfeat) {
+		std::string t = "untrunc-resinc 1\nactivo " + std::to_string(activo) +
+		                "\numbral 0.5\nnfeat " + std::to_string(nfeat) + "\nmedia";
+		for (int i = 0; i < nfeat; i++) t += " 0";
+		t += "\nescala";
+		for (int i = 0; i < nfeat; i++) t += " 1";
+		t += "\ncapa " + std::to_string(nfeat) + " 1\n";
+		for (int i = 0; i < nfeat; i++) t += "0 ";
+		t += "\n20\n";
+		return dir.write("modelo resinc ñ/" + nombre, Bytes(t.begin(), t.end()));
+	};
+	std::string why;
+	CHECK(!activarModeloResinc(modelo("no_validado.txt", 0, kResincNFeat), true, why));
+	CHECK(g_resync_scorer == nullptr);
+	CHECK(!activarModeloResinc(modelo("otra_version.txt", 1, kResincNFeat - 1), false, why));
+	CHECK(g_resync_scorer == nullptr);
+	CHECK(activarModeloResinc(modelo("valido.txt", 1, kResincNFeat), true, why));
+	CHECK(g_resync_scorer != nullptr);
+	CHECK(std::fabs(g_resync_umbral - 0.5) < 1e-9);
+	float f[kResincNFeat] = {0};
+	if (g_resync_scorer) CHECK(g_resync_scorer(f, kResincNFeat) > 0.99);
+	desactivarModeloResinc();
+	CHECK(g_resync_scorer == nullptr);
+	CHECK(g_resync_umbral > 1.0);
+
+	// Evaluacion: sin modelo recupera mucho mas real que falso; un modelo
+	// que lo acepta todo decide candidatos y nunca recupera menos.
+	ResultadoResinc e;
+	CHECK_EQ(evaluarResinc(sanos, modelo("todo.txt", 0, kResincNFeat), 2, e), 0);
+	CHECK(e.verdaderos_sin > 10 * e.falsos_sin);
+	CHECK(e.decisiones_modelo > 0);
+	CHECK(e.verdaderos_con + e.falsos_con >= e.verdaderos_sin + e.falsos_sin);
+	CHECK(g_resync_scorer == nullptr);
+}
+
 int main() {
 	TempDir dir;
 	testShellQuote();
@@ -895,6 +979,7 @@ int main() {
 	testConfigYOnnx(dir);
 	testVerificar(dir);
 	testResincronizacion(dir);
+	testModeloResinc(dir);
 
 	std::cout << g_checks << " comprobaciones, " << g_failures << " fallos\n";
 	return g_failures == 0 ? 0 : 1;

@@ -51,6 +51,7 @@ struct RepairOutcome {
 	// Veces que se volvio a encontrar el video tras una zona danada (en
 	// el intento elegido).
 	int resincs = 0;
+	int resincs_ia = 0;  // de ellas, decididas por el modelo (resinc_ia.h)
 };
 
 // Repara UN archivo con pre-vuelo + reintento automatico.

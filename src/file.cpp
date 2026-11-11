@@ -35,6 +35,34 @@
 
 using namespace std;
 
+std::vector<ZonaDanoSimulado> g_dano_simulado;
+bool g_dano_simulado_activo = false;
+
+void FileRead::danarLeido(uchar* dst, off_t pos, size_t n) {
+	if (!danar_ || n == 0) return;
+	const int64_t a = pos, b = pos + (int64_t)n;
+	for (const auto& z : g_dano_simulado) {
+		const int64_t i0 = std::max<int64_t>(a, z.ini), i1 = std::min<int64_t>(b, z.fin);
+		if (i0 >= i1) continue;
+		if (z.tipo == ZonaDanoSimulado::Ceros) {
+			memset(dst + (i0 - a), 0, (size_t)(i1 - i0));
+		} else if (z.tipo == ZonaDanoSimulado::Copia) {
+			const off_t vuelta = ftello(file_);
+			fseeko(file_, z.origen + (i0 - z.ini), SEEK_SET);
+			size_t leidos = fread(dst + (i0 - a), 1, (size_t)(i1 - i0), file_);
+			(void)leidos;
+			fseeko(file_, vuelta, SEEK_SET);
+		} else {
+			// Pseudoaleatorio en funcion de la posicion: releer da lo mismo.
+			for (int64_t p = i0; p < i1; p++) {
+				uint64_t x = (uint64_t)p * 0x9E3779B97F4A7C15ull ^ ((uint64_t)z.semilla << 32);
+				x ^= x >> 29; x *= 0xBF58476D1CE4E5B9ull; x ^= x >> 32;
+				dst[p - a] = (uchar)x;
+			}
+		}
+	}
+}
+
 FileRead::FileRead(const string& filename) {
 	open(filename);
 }
@@ -59,7 +87,9 @@ void FileRead::open(const string& filename) {
 	if (!isRegularFile(fileno(file_))) throw("not a regular file: " + filename);
 
 	buffer_ = (uchar*) malloc(buf_size_);
-	fread(buffer_, 1, buf_size_, file_);
+	danar_ = g_dano_simulado_activo && !g_dano_simulado.empty();
+	size_t n = fread(buffer_, 1, buf_size_, file_);
+	danarLeido(buffer_, 0, n);
 }
 
 void FileRead::seek(off_t p) {
@@ -90,11 +120,14 @@ size_t FileRead::fillBuffer(off_t location) {
 	if (avail < 0 || avail >= buf_size_) {
 		fseeko(file_, location, SEEK_SET);
 		int n = fread(buffer_, 1, buf_size_, file_);
+		if (n > 0) danarLeido(buffer_, location, n);
 		return n;
 	}else if (avail > 0) {
 		memmove(buffer_, buffer_+buf_loc, buf_size_-buf_loc);
 	}
+	const off_t donde = ftello(file_);
 	int n = fread(buffer_+avail, 1, buf_size_-avail, file_);
+	if (n > 0) danarLeido(buffer_ + avail, donde, n);
 	return n;
 }
 
@@ -110,7 +143,9 @@ size_t FileRead::readBuffer(uchar* dest, size_t size, size_t n) {
 		total -= avail;
 		buf_off_ = buf_size_;
 		if (total >= to_uint(buf_size_)){
+			const off_t donde = ftello(file_);
 			size_t x = fread(dest+nread, 1, total, file_);
+			danarLeido(dest + nread, donde, x);
 			nread += x;
 			fillBuffer(ftello(file_));
 		} else {

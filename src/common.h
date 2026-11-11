@@ -49,15 +49,23 @@ extern void (*g_onProgress)(int);
 extern void (*g_onStatus)(const std::string&);
 // Resincronizacion tras zonas danadas (Mp4::tryResync).
 //   g_resync_enabled: activada por defecto (--sin-resinc la apaga).
-//   g_resync_scorer: si no es null (ONNX activado), probabilidad 0..1 de
-//   que los bytes sean el inicio de un fotograma. Hoy SOLO se anota en
-//   el volcado de diagnostico (UNTRUNC_VOLCAR_RESINC): medido contra la
-//   verdad conocida, vetar con el modelo perdia 5 fotogramas reales por
-//   cada falso que paraba, asi que no decide nada.
-//   g_resync_count: resincronizaciones hechas en la ultima reparacion.
+//   Un candidato se acepta si los 2 fotogramas siguientes encajan en
+//   cadena. Si encajan 0 o 1 (justo antes de otra zona danada), la cadena
+//   no decide; ahi decide el modelo de resincronizacion (resinc_ia.h) si
+//   esta cargado: g_resync_scorer(caracteristicas) >= g_resync_umbral.
+//   g_resync_sink: si no es null, recibe TODOS los candidatos con sus
+//   caracteristicas (para generar datos de entrenamiento).
+//   g_resync_count / g_resync_ia_count: resincronizaciones hechas y
+//   cuantas de ellas decidio el modelo, en la ultima reparacion.
+//   g_solo_simular: reparar sin escribir el video (datos de entrenamiento).
+constexpr int kResincNFeat = 17;
 extern bool g_resync_enabled;
-extern double (*g_resync_scorer)(const unsigned char* data, size_t len);
+extern double (*g_resync_scorer)(const float* f, int n);
+extern double g_resync_umbral;
+extern void (*g_resync_sink)(int64_t off_abs, const char* codec, int cadena, const float* f, int n);
 extern int g_resync_count;
+extern int g_resync_ia_count;
+extern bool g_solo_simular;
 
 const int64_t kRangeUnset = std::numeric_limits<int64_t>::min();
 

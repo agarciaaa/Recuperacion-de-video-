@@ -38,6 +38,7 @@
 #include "ai/external/external_provider.h"
 #include "ai/lmstudio/lmstudio_provider.h"
 #include "ai/onnx/onnx_provider.h"
+#include "resinc_ia.h"
 
 // Modos ONNX de entrenamiento (Fase 2.5): delegan en el script
 // Python train_onnx.py, que es quien sabe crear el dataset y
@@ -302,6 +303,11 @@ void usage() {
 	     << "--preflight - solo revisa la referencia y el danado y explica en espanol si se puede reparar\n"
 	     << "--sin-verificar - no comprobar el video reparado al terminar (por defecto se\n"
 	     << "              decodifica entero y se indica en que segundos hay errores)\n"
+	     << "--dataset-resinc <salida.tsv> [--semillas N] <sano.mp4>... - datos para\n"
+	     << "    entrenar la resincronizacion: dana los videos solo en memoria (no copia\n"
+	     << "    ni escribe ningun video) y guarda solo numeros\n"
+	     << "--evaluar-resinc <modelo.txt|-> [--semillas N] <sano.mp4>... - mide cuantos\n"
+	     << "    fotogramas reales y falsos se recuperan sin y con el modelo\n"
 	     << "--sin-resinc - no intentar volver a encontrar el video tras una zona danada\n"
 	     << "              (por defecto se hace; con ONNX activado, el modelo lo confirma)\n"
 	     << "--verificar <video> - solo comprueba un video (reparado o no) y dice si hay\n"
@@ -562,6 +568,28 @@ int main(int argc, char *argv[]) {
 			     << "  untrunc --plantilla " << r.info.id << " <dañado.mp4>\n"
 			     << "o deja que --sin-referencia la elija sola.\n";
 			return 0;
+		}
+		if (a == "--dataset-resinc" || a == "--evaluar-resinc") {
+			const bool dataset = a == "--dataset-resinc";
+			int semillas = 3;
+			std::vector<std::string> sanos;
+			std::string destino;
+			for (int k = j + 1; k < argc; k++) {
+				std::string x = argv[k];
+				if (x == "--semillas" && k + 1 < argc) semillas = std::max(1, atoi(argv[++k]));
+				else if (destino.empty()) destino = x;
+				else sanos.push_back(x);
+			}
+			if (destino.empty() || sanos.empty()) {
+				cerr << "Uso: untrunc --dataset-resinc <salida.tsv> [--semillas N] <sano.mp4>...\n"
+				     << "     untrunc --evaluar-resinc <modelo.txt|-> [--semillas N] <sano.mp4>...\n";
+				return 1;
+			}
+			ResultadoResinc r;
+			int rc = dataset ? generarDatasetResinc(sanos, destino, semillas, r)
+			                 : evaluarResinc(sanos, destino == "-" ? "" : destino, semillas, r);
+			cout << r.resumen_es << "\n";
+			return rc;
 		}
 		if (a == "--verificar") {
 			if (j + 1 >= argc) {

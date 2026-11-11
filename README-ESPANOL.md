@@ -124,15 +124,40 @@ Pruebas con vídeos dañados a propósito (mismo vídeo de 20 s):
 
 Para desactivar la resincronización: `--sin-resinc`.
 
-**El modelo ONNX no interviene aquí.** Se midió contra la verdad conocida
-(294 candidatos de 50 reparaciones de 5 vídeos dañados a propósito):
-cuando la cadena encaja, 190 de 200 candidatos son fotogramas reales y los
-10 restantes son fotogramas reales copiados de otra parte del vídeo. Usar
-el modelo para descartar perdía 5 fotogramas reales por cada falso que
-paraba, y donde la cadena no decide aceptaba más falsos que reales. Por
-eso se quitó. Para medir modelos futuros con los mismos datos, existe la
-variable `UNTRUNC_VOLCAR_RESINC=<archivo>`, que anota cada candidato con su
-cadena y la puntuación del modelo.
+### ¿Ayuda un modelo entrenado? Medido: hoy no
+
+Se probó a fondo si un modelo entrenado puede decidir los casos en los que
+la cadena no decide (0 o 1 fotogramas siguientes encajan, normalmente
+porque hay otra zona dañada justo después). Resultado:
+
+- **El modelo de ventanas de 256 bytes (ONNX)** empeoraba: para descartar
+  candidatos perdía 5 fotogramas reales por cada falso que paraba.
+- **Un modelo entrenado solo para esto** (17 datos numéricos de cada
+  candidato, entrenado con 24 vídeos de prueba y 1.440 daños simulados):
+  de 7.271 candidatos sin cadena, solo 75 eran fotogramas reales. Validado
+  dejando fuera cada vídeo, el modelo lineal no recuperó ninguno y la red
+  pequeña recuperó 12 de 75 pero aceptó 1 falso. Con 2 vídeos reales que
+  no había visto (60 reparaciones, 42.886 fotogramas recuperados) no tomó
+  ninguna decisión: **0 fotogramas ganados**.
+- Los falsos difíciles son trozos de vídeo real copiados o desplazados:
+  tienen exactamente el mismo aspecto que un fotograma real, así que
+  ningún modelo que mire el candidato puede separarlos.
+
+Conclusión: la cadena ya recupera casi todo lo recuperable, y el programa
+**no incluye ningún modelo de resincronización**. El mecanismo queda
+preparado: si entrenas uno con tus vídeos y en la validación no acepta
+ningún falso, se marca `activo 1` y se usa con ONNX activado. Si no, se
+guarda con `activo 0` y no se usa.
+
+```shell
+# Datos de entrenamiento: daña los vídeos SOLO en memoria (no copia ni
+# escribe ningún vídeo) y guarda solo números, sin rutas.
+./untrunc --dataset-resinc datos.tsv --semillas 4 sano1.mp4 sano2.mp4 ...
+# Entrena y valida dejando fuera cada vídeo:
+python3 tools/train_onnx.py entrenar-resinc --dataset datos.tsv
+# Mide fotogramas reales y falsos recuperados sin y con un modelo:
+./untrunc --evaluar-resinc ~/.config/untrunc/entrenamiento/resinc_modelo.txt sano.mp4
+```
 
 Además, la búsqueda de estrategias ya no se para en un intento que llega
 al final pero deja más del 5 % del vídeo sin reconocer.

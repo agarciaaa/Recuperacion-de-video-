@@ -1302,6 +1302,192 @@ def borrar_base(base: Path, dataset_dir: Path, modelo_dir: Path,
     return 0
 
 
+# ---------------------------------------------------------------------------
+# Modelo de resincronizacion (ver src/resinc_ia.h)
+# ---------------------------------------------------------------------------
+# Decide SOLO los candidatos tras una zona danada en los que la cadena no
+# decide (0 o 1 fotogramas siguientes encajan). Entra un TSV de numeros que
+# genera `untrunc --dataset-resinc` (sin rutas ni bytes de video). Sale
+# resinc_modelo.txt: regresion logistica sobre las caracteristicas, con un
+# umbral elegido para no aceptar ningun falso en entrenamiento.
+#
+# Validacion honesta: cada video se deja fuera una vez; con los demas se
+# entrena y se elige el umbral, y se cuenta cuantos reales y falsos del
+# video no visto pasarian. El modelo queda "activo 1" (el programa lo usa)
+# solo si en esa validacion hubo 0 falsos aceptados y al menos
+# RESINC_MIN_REALES reales recuperados; si no, se guarda con "activo 0"
+# y el programa no lo usa.
+
+RESINC_NFEAT = 17
+RESINC_MIN_REALES = 3
+
+
+def _leer_tsv_resinc(ruta: Path):
+    lineas = ruta.read_text(encoding="utf-8").splitlines()
+    if not lineas:
+        raise ValueError("el TSV está vacío")
+    cab = lineas[0].split("\t")
+    if cab[:6] != ["video", "tipo", "semilla", "etiqueta", "cadena", "codec"] or \
+            len(cab) != 6 + RESINC_NFEAT:
+        raise ValueError("el TSV no es de `untrunc --dataset-resinc` (o es de otra versión)")
+    video, et, cad, X = [], [], [], []
+    for l in lineas[1:]:
+        c = l.split("\t")
+        if len(c) != len(cab):
+            continue
+        video.append(int(c[0]))
+        et.append(int(c[3]))
+        cad.append(int(c[4]))
+        X.append([float(x) for x in c[6:]])
+    return (cab[6:], np.array(video), np.array(et), np.array(cad),
+            np.array(X, dtype=np.float64).reshape(-1, RESINC_NFEAT))
+
+
+def _logistica(X, y, l2=1e-2, epocas=3000, lr=0.5):
+    """Regresion logistica con clases equilibradas (descenso de gradiente)."""
+    media = X.mean(axis=0)
+    escala = X.std(axis=0)
+    escala[escala < 1e-9] = 1.0
+    Z = (X - media) / escala
+    n, d = Z.shape
+    pos = max(1, int(y.sum()))
+    neg = max(1, n - pos)
+    peso = np.where(y == 1, n / (2.0 * pos), n / (2.0 * neg))
+    w = np.zeros(d)
+    b = 0.0
+    for _ in range(epocas):
+        p = 1.0 / (1.0 + np.exp(-(Z @ w + b)))
+        g = (p - y) * peso
+        w -= lr * (Z.T @ g / n + l2 * w)
+        b -= lr * g.mean()
+    return media, escala, w, b
+
+
+def _red(X, y, ocultas=8, l2=1e-3, epocas=4000, lr=0.01, semilla=0):
+    """Red 17-ocultas-1 (ReLU, sigmoide), clases equilibradas, Adam."""
+    media = X.mean(axis=0)
+    escala = X.std(axis=0)
+    escala[escala < 1e-9] = 1.0
+    Z = (X - media) / escala
+    n, d = Z.shape
+    rng = np.random.default_rng(semilla)
+    W1 = rng.normal(0, 1.0 / math.sqrt(d), (ocultas, d))
+    b1 = np.zeros(ocultas)
+    W2 = rng.normal(0, 1.0 / math.sqrt(ocultas), (1, ocultas))
+    b2 = np.zeros(1)
+    pos = max(1, int(y.sum()))
+    neg = max(1, n - pos)
+    peso = np.where(y == 1, n / (2.0 * pos), n / (2.0 * neg))
+    params = [W1, b1, W2, b2]
+    m1 = [np.zeros_like(q) for q in params]
+    m2 = [np.zeros_like(q) for q in params]
+    for t in range(1, epocas + 1):
+        h = np.maximum(0, Z @ W1.T + b1)
+        p = 1.0 / (1.0 + np.exp(-(h @ W2.T + b2)[:, 0]))
+        g = ((p - y) * peso / n)[:, None]
+        gW2 = g.T @ h + l2 * W2
+        gb2 = g.sum(axis=0)
+        gh = (g @ W2) * (h > 0)
+        gW1 = gh.T @ Z + l2 * W1
+        gb1 = gh.sum(axis=0)
+        for i, gr in enumerate((gW1, gb1, gW2, gb2)):
+            m1[i] = 0.9 * m1[i] + 0.1 * gr
+            m2[i] = 0.999 * m2[i] + 0.001 * gr * gr
+            params[i] -= lr * (m1[i] / (1 - 0.9 ** t)) / (np.sqrt(m2[i] / (1 - 0.999 ** t)) + 1e-8)
+    return ("red", media, escala, W1, b1, W2, b2)
+
+
+def _puntuar(modelo, X):
+    if isinstance(modelo[0], str):
+        _, media, escala, W1, b1, W2, b2 = modelo
+        h = np.maximum(0, ((X - media) / escala) @ W1.T + b1)
+        return 1.0 / (1.0 + np.exp(-(h @ W2.T + b2)[:, 0]))
+    media, escala, w, b = modelo
+    return 1.0 / (1.0 + np.exp(-(((X - media) / escala) @ w + b)))
+
+
+def _umbral_sin_falsos(p, y):
+    """El menor umbral que no deja pasar ningun negativo (con margen)."""
+    neg = p[y == 0]
+    tope = float(neg.max()) if len(neg) else 0.5
+    return min(0.999999, max(0.5, tope + 0.25 * (1.0 - tope)))
+
+
+def entrenar_resinc(tsv: Path, salida: Path, tipo="red"):
+    try:
+        nombres, video, et, cad, X = _leer_tsv_resinc(tsv)
+    except (OSError, ValueError) as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
+    m = cad < 2
+    video, et, X = video[m], et[m], X[m]
+    videos = sorted(set(video.tolist()))
+    print(f"Candidatos sin cadena: {len(et)} ({int(et.sum())} reales) de "
+          f"{len(videos)} vídeos.")
+    if et.sum() < 2 or (et == 0).sum() < 2 or len(videos) < 2:
+        print("ERROR: hacen falta reales y falsos de al menos 2 vídeos.", file=sys.stderr)
+        return 2
+
+    # Validacion dejando fuera un video cada vez.
+    reales_ok = falsos_ok = reales_tot = 0
+    por_video = []
+    for v in videos:
+        tr, va = video != v, video == v
+        if et[tr].sum() == 0:
+            continue
+        mod = _red(X[tr], et[tr]) if tipo == "red" else _logistica(X[tr], et[tr])
+        umbral = _umbral_sin_falsos(_puntuar(mod, X[tr]), et[tr])
+        pv = _puntuar(mod, X[va])
+        r = int(((pv >= umbral) & (et[va] == 1)).sum())
+        f = int(((pv >= umbral) & (et[va] == 0)).sum())
+        reales_ok += r
+        falsos_ok += f
+        reales_tot += int(et[va].sum())
+        por_video.append((v, int(et[va].sum()), r, f))
+    activo = falsos_ok == 0 and reales_ok >= RESINC_MIN_REALES
+    print(f"Validación (cada vídeo sin verlo en el entrenamiento): {reales_ok} de "
+          f"{reales_tot} reales recuperados, {falsos_ok} falsos aceptados.")
+    for v, tot, r, f in por_video:
+        if tot or f:
+            print(f"  vídeo {v}: {r}/{tot} reales, {f} falsos")
+
+    mod = _red(X, et) if tipo == "red" else _logistica(X, et)
+    umbral = _umbral_sin_falsos(_puntuar(mod, X), et)
+    salida.parent.mkdir(parents=True, exist_ok=True)
+    fmt = lambda v: " ".join(f"{x:.9g}" for x in v)
+    texto = [
+        "untrunc-resinc 1",
+        "# Modelo de resincronizacion (train_onnx.py entrenar-resinc).",
+        f"# Validacion dejando fuera cada video: {reales_ok}/{reales_tot} reales, "
+        f"{falsos_ok} falsos aceptados; {len(videos)} videos, {len(et)} candidatos.",
+        "# caracteristicas: " + " ".join(nombres),
+        f"activo {1 if activo else 0}",
+        f"umbral {umbral:.9g}",
+        f"nfeat {RESINC_NFEAT}",
+    ]
+    if isinstance(mod[0], str):
+        _, media, escala, W1, b1, W2, b2 = mod
+        texto += ["media " + fmt(media), "escala " + fmt(escala),
+                  f"capa {RESINC_NFEAT} {len(b1)}"] + [fmt(fila) for fila in W1] + [fmt(b1),
+                  f"capa {len(b1)} 1", fmt(W2[0]), fmt(b2)]
+    else:
+        media, escala, w, b = mod
+        texto += ["media " + fmt(media), "escala " + fmt(escala),
+                  f"capa {RESINC_NFEAT} 1", fmt(w), f"{b:.9g}"]
+    tmp = salida.with_suffix(".tmp")
+    tmp.write_text("\n".join(texto) + "\n", encoding="utf-8")
+    os.replace(tmp, salida)
+    print(f"Modelo guardado en {salida} (umbral {umbral:.4f}).")
+    if activo:
+        print("ACTIVO: en vídeos no vistos no aceptó ningún falso; el programa lo usará "
+              "con ONNX activado.")
+    else:
+        motivo = (f"aceptó {falsos_ok} falsos" if falsos_ok
+                  else f"solo recuperó {reales_ok} reales (mínimo {RESINC_MIN_REALES})")
+        print(f"NO ACTIVO: en la validación {motivo}; el programa no lo usará.")
+    return 0
+
+
 def dir_entrenamiento():
     return Path.home() / ".config" / "untrunc" / "entrenamiento"
 
@@ -1376,6 +1562,14 @@ def main():
     p = sub.add_parser("probar", help="Evalúa un modelo sobre un dataset.")
     p.add_argument("--modelo", default=None)
     p.add_argument("--dataset", default=None)
+    rs = sub.add_parser("entrenar-resinc",
+                        help="Entrena el modelo de resincronización con el TSV de "
+                             "`untrunc --dataset-resinc` y lo valida por vídeo.")
+    rs.add_argument("--dataset", required=True, help="TSV de untrunc --dataset-resinc.")
+    rs.add_argument("--tipo", choices=["red", "lineal"], default="red",
+                    help="red: 17-8-1 (por defecto); lineal: regresión logística.")
+    rs.add_argument("--salida", default=None,
+                    help="Por defecto, resinc_modelo.txt en la carpeta de entrenamiento.")
     r = sub.add_parser("restablecer", help="Copia el modelo base a la carpeta del modelo activo.")
     r.add_argument("--base", required=True)
     r.add_argument("--destino", required=True)
@@ -1480,6 +1674,9 @@ def main():
             print(f"ERROR: no hay dataset en {ds_dir}.", file=sys.stderr)
             return 2
         return probar(modelo, ds_dir)
+    if args.cmd == "entrenar-resinc":
+        salida = Path(args.salida) if args.salida else dir_entrenamiento() / "resinc_modelo.txt"
+        return entrenar_resinc(Path(args.dataset), salida, args.tipo)
     if args.cmd == "restablecer":
         origen, destino = Path(args.base), Path(args.destino)
         if not (origen / "model_info.json").exists():

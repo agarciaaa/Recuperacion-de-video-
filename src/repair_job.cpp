@@ -15,6 +15,7 @@
 #include "memoria.h"
 #include "ai/ai_provider.h"
 #include "ai/onnx/onnx_provider.h"
+#include "resinc_ia.h"
 #include "mp4.h"
 #include "upath.h"
 
@@ -66,24 +67,27 @@ struct Attempt {
 	int64_t duration_ms = 0;
 	uint64_t out_bytes = 0;
 	int resincs = 0;
+	int resincs_ia = 0;
 	double desconocido = 0;  // % del mdat sin reconocer
 };
 
-// Si ONNX esta activado, mientras dura una reparacion el modelo puntua
-// los candidatos de resincronizacion para el volcado de diagnostico
-// (g_resync_scorer, no decide nada); al salir se desconecta siempre.
+// Si ONNX esta activado y hay un modelo de resincronizacion validado
+// ("activo 1", ver resinc_ia.h), mientras dura la reparacion decide los
+// candidatos tras una zona danada donde la cadena no decide; al salir se
+// desconecta siempre.
 struct ResincGuard {
 	bool activo = false;
-	std::string modelo_es;
 	explicit ResincGuard(bool pedir) {
 		if (!pedir) return;
 		AiConfig cfg = loadAiConfig();
 		if (!(cfg.onnx_enabled || g_onnx_enabled)) return;
-		cfg.onnx_enabled = true;  // --usar-onnx sin ai.conf
+		const std::string ruta = rutaModeloResincEnUso();
 		std::string why;
-		activo = activarResincronizacionOnnx(cfg, modelo_es, why);
+		if (!ruta.empty()) activo = activarModeloResinc(ruta, true, why);
 	}
-	~ResincGuard() { desactivarResincronizacionOnnx(); }
+	~ResincGuard() {
+		if (activo) desactivarModeloResinc();
+	}
 };
 
 // Un intento que llega al final pero deja mas de esto sin reconocer
@@ -99,6 +103,7 @@ Attempt runAttempt(const std::string& ref, const std::string& corrupt) {
 		mp4.repair(corrupt);
 		a.premature = mp4.premature_end_;
 		a.resincs = g_resync_count;
+		a.resincs_ia = g_resync_ia_count;
 		a.desconocido = mp4.unknown_percentage_;
 		a.output = mp4.getPathRepaired(ref, corrupt);
 		a.duration_ms = mp4.getDurationInMs();
@@ -171,7 +176,7 @@ RepairOutcome repairFileWithAutoRetry(const std::string& ref_path,
 	// Desde aqui el nucleo trabaja con `run`; al salir (por cualquier
 	// return o excepcion) se restauran las globales.
 	RepairSession session(run);
-	ResincGuard resinc(run.resinc && getenv("UNTRUNC_VOLCAR_RESINC"));
+	ResincGuard resinc(run.resinc);
 
 	// Si ya existe la salida y esta -skip, no se repara: se anota y
 	// se sigue (en lote no se puede hacer exit(0) como hacia repair()).
@@ -301,6 +306,7 @@ RepairOutcome repairFileWithAutoRetry(const std::string& ref_path,
 	out.duration_ms = best.duration_ms;
 	out.output_bytes = best.out_bytes;
 	out.resincs = best.resincs;
+	out.resincs_ia = best.resincs_ia;
 	if (hechos.size() > 1) {
 		out.retry_percent = best.pct;
 		std::ostringstream m;
@@ -360,7 +366,10 @@ RepairOutcome repairFileWithAutoRetry(const std::string& ref_path,
 	if (out.resincs > 0) {
 		ss << "\n  Zonas dañadas: se volvió a encontrar el vídeo " << out.resincs
 		   << (out.resincs == 1 ? " vez" : " veces")
-		   << " (3 fotogramas seguidos que encajan).";
+		   << " (3 fotogramas seguidos que encajan";
+		if (out.resincs_ia > 0)
+			ss << "; " << out.resincs_ia << " las decidió el modelo de resincronización";
+		ss << ").";
 	}
 	if (out.intentos_es.size() > 1) {
 		ss << "\n  Estrategias probadas:";
