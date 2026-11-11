@@ -9,6 +9,14 @@ void GuiHelper::setSpacedThing(Thing& t, bool spaced) {
 	size_t j, n;
 	void* p = t.ptr;
 
+	// Cada uiXxxSetPadded/SetMargined hace que libui recalcule el tamano
+	// minimo de todo el arbol de controles, aunque el valor no cambie.
+	// Se omite si ya tiene ese valor. Las pestanas se reaplican siempre:
+	// pueden tener paginas nuevas desde la ultima vez.
+	if (t.type != tab && t.spaced == (spaced ? 1 : 0))
+		return;
+	t.spaced = spaced ? 1 : 0;
+
 	switch (t.type) {
 		case window:
 			uiWindowSetMargined(uiWindow(p), spaced);
@@ -106,9 +114,16 @@ uiEntry* GuiHelper::newEntry(void) {
 void GuiHelper::append(void* ptr, int type) {
 	elements_.emplace_back(ptr, type);
 
-	// TODO: trigger update/rerender correctly
+	// En MinGW se aplica el espaciado al crear cada elemento. Antes se
+	// llamaba aqui a setSpaced(true), que lo reaplicaba a TODOS los
+	// elementos creados hasta ahora: O(n^2) llamadas a uiBoxSetPadded /
+	// uiGroupSetMargined / uiTabSetMargined, y cada una hace que libui
+	// recalcule el tamano minimo de todo el arbol (unos 65 s de arranque
+	// con el procesador al 100 %). Basta con el elemento nuevo: los
+	// anteriores ya estan espaciados, y Gui llama a setSpaced(true) tras
+	// build() para las paginas de la pestana.
 	#ifdef __MINGW32__
-	setSpaced(true);
+	setSpacedThing(elements_.back(), true);
 	#endif
 }
 

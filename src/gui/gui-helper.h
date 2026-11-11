@@ -20,6 +20,7 @@ public:
 		Thing(void* ptr, int type);
 		void* ptr;
 		int type;
+		int spaced = -1;  // -1 = aun sin aplicar; 0/1 = ultimo valor aplicado
 	};
 
 	static void setSpaced(bool spaced);
