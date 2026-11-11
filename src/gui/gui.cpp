@@ -33,6 +33,7 @@ extern "C" {
 #include "../diagnoser.h"
 #include "../formatos.h"
 #include "../mp4.h"
+#include "../plantillas.h"
 #include "../repair_job.h"
 #include "../repair_options.h"
 #include "../shell_util.h"
@@ -1646,6 +1647,52 @@ void Gui::Assistant::updatePreviewTarget() {
 	}
 }
 
+// Plantillas de camara en el Asistente. libui solo permite AÑADIR
+// opciones a un desplegable, asi que se guarda aparte el id de cada
+// plantilla en el mismo orden en que se anadio (despues de los perfiles).
+static std::vector<std::string> g_asist_plantillas;
+static uiEntry* g_asist_nombre_plantilla = nullptr;
+static uiButton* g_asist_btn_plantilla = nullptr;
+
+void Gui::Assistant::anadirPlantilla(const std::string& p_id, const std::string& resumen) {
+	for (const auto& id : g_asist_plantillas)
+		if (id == p_id) return;  // ya estaba (se reemplazo el archivo)
+	std::string t = "Plantilla: " + p_id + "  (" + resumen + ")";
+	uiComboboxAppend(combo_perfil_, t.c_str());
+	g_asist_plantillas.push_back(p_id);
+}
+
+// Guarda la cabecera del video de referencia del Paso 2 como plantilla
+// de camara (plantillas.h): asi, la proxima vez, "No tengo referencia"
+// recupera como si se tuviera ese video sano.
+void Gui::Assistant::guardarPlantilla(uiButton*, void*) {
+	if (Gui::thread_) {
+		Gui::msgBox("Hay una reparación en marcha. Espera a que termine para guardar la plantilla.");
+		return;
+	}
+	std::string ref = Gui::Assistant::entry_ref_ ? entryText(Gui::Assistant::entry_ref_) : "";
+	if (ref.empty()) {
+		Gui::msgBoxError("Primero elige en el Paso 2 un vídeo de referencia SANO, grabado con la "
+		                 "misma cámara y la misma configuración que los dañados.");
+		return;
+	}
+	std::string nombre = g_asist_nombre_plantilla ? entryText(g_asist_nombre_plantilla) : "";
+	plantillas::ResultadoCrear r = plantillas::crearPlantilla(ref, "", nombre);
+	if (!r.ok) {
+		Gui::msgBoxError(r.error_es);
+		return;
+	}
+	anadirPlantilla(r.info.id, r.info.resumenEs());
+	std::string m = "Plantilla «" + r.info.id + "» guardada (" + r.info.resumenEs() + ", " +
+	                std::to_string(r.info.file_bytes / 1024 + 1) + " KB, sin imagen ni sonido; "
+	                "se quitaron fechas, GPS y otros metadatos).\n\n"
+	                "La próxima vez que no tengas referencia de esta cámara, elige "
+	                "«No tengo referencia»: se probará esta plantilla primero (o elígela en "
+	                "«Perfil de cámara o plantilla»).\n\n"
+	                "Se guardó en: " + r.path;
+	Gui::msgBox(m.c_str());
+}
+
 void Gui::Assistant::refresh() {
 	updateList();
 	updateFormatsLabel();
@@ -1661,6 +1708,11 @@ void Gui::Assistant::refresh() {
 	if (btn_ref_examinar_) {
 		if (con_ref) uiControlEnable(uiControl(btn_ref_examinar_));
 		else uiControlDisable(uiControl(btn_ref_examinar_));
+	}
+	for (uiControl* c : {uiControl(g_asist_btn_plantilla), uiControl(g_asist_nombre_plantilla)}) {
+		if (!c) continue;
+		if (con_ref) uiControlEnable(c);
+		else uiControlDisable(c);
 	}
 	if (combo_perfil_) {
 		if (con_ref) uiControlDisable(uiControl(combo_perfil_));
@@ -1848,8 +1900,11 @@ void Gui::Assistant::startBatch(uiButton* button, void* data) {
 	std::string profile;
 	{
 		int sel = combo_perfil_ ? uiComboboxSelected(combo_perfil_) : 0;
+		const int i_tpl = sel - kAiLocalProfilesCount - 1;
 		if (sel > 0 && sel <= kAiLocalProfilesCount)
 			profile = kAiLocalProfiles[sel - 1];
+		else if (i_tpl >= 0 && i_tpl < (int)g_asist_plantillas.size())
+			profile = g_asist_plantillas[i_tpl];  // plantilla: se prueba primero
 		else
 			profile = g_ai_local_profile;
 	}
@@ -2132,12 +2187,27 @@ uiControl* Gui::assistantTab() {
 	uiBoxAppend(h_ref, uiControl(Assistant::btn_ref_examinar_), 0);
 	uiBoxAppend(h_ref, uiControl(Assistant::entry_ref_), 1);
 	uiBoxAppend(v2, uiControl(h_ref), 0);
+	// Guardar la referencia como plantilla de camara (solo cabecera).
+	auto h_tpl = newHorizontalBox();
+	g_asist_btn_plantilla = newButton("Guardar como plantilla de esta cámara");
+	auto label_tpl = uiNewLabel("Nombre (opcional):");
+	g_asist_nombre_plantilla = newEntry();
+	uiBoxAppend(h_tpl, uiControl(g_asist_btn_plantilla), 0);
+	uiBoxAppend(h_tpl, uiControl(label_tpl), 0);
+	uiBoxAppend(h_tpl, uiControl(g_asist_nombre_plantilla), 1);
+	uiBoxAppend(v2, uiControl(h_tpl), 0);
+	auto label_tpl_info = uiNewLabel("Guarda solo la cabecera de la referencia (unos KB, sin imagen ni sonido). Así podrás reparar vídeos de esta cámara aunque ya no tengas un vídeo sano.");
+	uiBoxAppend(v2, uiControl(label_tpl_info), 0);
+	uiButtonOnClicked(g_asist_btn_plantilla, Gui::Assistant::guardarPlantilla, nullptr);
 	auto h_perfil = newHorizontalBox();
-	auto label_perfil = uiNewLabel("      Perfil de cámara (solo sin referencia)");
+	auto label_perfil = uiNewLabel("      Perfil de cámara o plantilla (solo sin referencia)");
 	Assistant::combo_perfil_ = uiNewCombobox();
 	uiComboboxAppend(Assistant::combo_perfil_, "Automático (recomendado)");
 	for (int i = 0; i < kAiLocalProfilesCount; i++)
 		uiComboboxAppend(Assistant::combo_perfil_, kAiLocalProfiles[i]);
+	g_asist_plantillas.clear();
+	for (const auto& p : plantillas::listarPlantillas(g_exe_argv0))
+		Assistant::anadirPlantilla(p.id, p.resumenEs());
 	uiBoxAppend(h_perfil, uiControl(label_perfil), 0);
 	uiBoxAppend(h_perfil, uiControl(Assistant::combo_perfil_), 1);
 	uiBoxAppend(v2, uiControl(h_perfil), 0);

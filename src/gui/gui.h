@@ -201,6 +201,10 @@ private:
 	// disponible; si no, "Abrir video reparado" usa el
 	// reproductor por defecto del sistema.
 	struct Assistant {
+		// Plantillas de camara (gui.cpp): guardar la referencia como
+		// plantilla y anadir una al desplegable de perfiles.
+		static void guardarPlantilla(uiButton* b, void* data);
+		static void anadirPlantilla(const std::string& id, const std::string& resumen);
 		static uiMultilineEntry* list_danados_;
 		static uiLabel* label_contadores_;
 		static uiLabel* label_formatos_;

@@ -153,7 +153,11 @@ RescueOutcome rescueWithoutReference(const std::string& damaged_path,
                                      const std::string& profile_override,
                                      const char* argv0) {
 	RescueOutcome out;
-	out.hybrid = hybridAnalyze(damaged_path, "", cfg, profile_override, argv0);
+	const std::vector<plantillas::InfoPlantilla> todas = plantillas::listarPlantillas(argv0);
+	bool es_plantilla = false;
+	for (const auto& p : todas)
+		if (!profile_override.empty() && p.id == profile_override) es_plantilla = true;
+	out.hybrid = hybridAnalyze(damaged_path, "", cfg, es_plantilla ? "" : profile_override, argv0);
 	const AiSuggestion& s = out.hybrid.suggestion;
 
 	// 1) Plantillas con la cabecera REAL de la camara (plantillas.h).
@@ -162,7 +166,7 @@ RescueOutcome rescueWithoutReference(const std::string& damaged_path,
 	// practica no recupera nada; una plantilla de la misma camara si.
 	{
 		std::vector<plantillas::InfoPlantilla> cand = plantillas::ordenarCandidatas(
-		    plantillas::listarPlantillas(argv0), profile_override, s.width, s.height, s.codec);
+		    todas, profile_override, s.width, s.height, s.codec);
 		if (!cand.empty()) {
 			plantillas::ResultadoPlantillas pr =
 			    plantillas::repararConPlantillas(cand, damaged_path, opts, 3);
