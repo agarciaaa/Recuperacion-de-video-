@@ -162,6 +162,40 @@ python3 tools/train_onnx.py entrenar-resinc --dataset datos.tsv
 Además, la búsqueda de estrategias ya no se para en un intento que llega
 al final pero deja más del 5 % del vídeo sin reconocer.
 
+### Sonido e imagen a la par tras una zona dañada
+
+El audio y el vídeo van guardados en bloques intercalados. Una zona dañada
+puede llevarse un bloque de vídeo entero y nada de audio, o al revés, y a
+partir de ahí el sonido se adelantaba o se atrasaba respecto a la imagen.
+Ahora el programa lo corrige: en cada paso de un bloque de vídeo a uno de
+audio, los dos relojes deberían ir casi a la par. Si al cruzar la zona
+dañada esa diferencia cambia, alarga (o acorta un poco) los fotogramas justo
+antes de la zona para compensarlo. No se pierde ni se inventa ningún
+fotograma ni audio.
+
+Medido con 14 vídeos con audio AAC, 210 daños simulados en memoria y la
+verdad del vídeo sano (`--evaluar-audio`):
+
+| | Sin corregir | Corregido |
+|---|---|---|
+| Desfase medio por zona dañada | 27–35 ms | 4–5 ms |
+| Zonas con más de 45 ms de desfase (se nota en los labios) | 92 | 0 |
+| Vídeos que acaban con más de 45 ms de desfase | 144 de 210 | 32 de 210 |
+| Desfase medio al final del vídeo | 50–193 ms | 13–53 ms |
+
+Lo que queda viene sobre todo de un vídeo en el que la reparación, tras
+el daño, recupera trozos que no son fotogramas reales: ahí no hay forma de
+saber la sincronía. El audio en sí ya se recuperaba casi entero (98–99 % de
+lo que el daño no destruyó).
+
+El resumen lo indica («Sonido e imagen: se corrigió el desfase tras N zonas
+dañadas»). Para desactivarlo: `--sin-sincro`. Para medirlo con tus propios
+vídeos sanos (se dañan solo en memoria, no se escribe ningún vídeo):
+
+```shell
+./untrunc --evaluar-audio --semillas 3 sano1.mp4 sano2.mp4
+```
+
 ## Comprobación del vídeo reparado
 
 Al terminar, el vídeo reparado se decodifica entero (imagen y sonido) y

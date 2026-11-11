@@ -75,6 +75,9 @@ void (*g_resync_sink)(int64_t off_abs, const char* codec, int cadena, const floa
 int g_resync_count = 0;
 int g_resync_ia_count = 0;
 bool g_solo_simular = false;
+bool g_sincro_enabled = true;
+int g_sincro_count = 0;
+double g_sincro_ms = 0;
 int64_t g_range_start = kRangeUnset;
 int64_t g_range_end = kRangeUnset;
 std::string g_dst_path;

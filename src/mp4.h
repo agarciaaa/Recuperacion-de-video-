@@ -148,6 +148,35 @@ public:
 	// Duracion (ms) de la pista de video y de la de audio AAC (0 si no hay).
 	void duracionesMs(double& video_ms, double& audio_ms);
 
+	// Sincronia tras zonas danadas. Cada zona saltada hace perder tiempo
+	// a cada pista, pero no el mismo: el audio y el video van en bloques
+	// intercalados, y la zona puede llevarse un bloque de video entero y
+	// nada de audio (o al reves). Sin corregir, el sonido se adelanta o se
+	// atrasa respecto a la imagen a partir de ahi.
+	struct MuestraT {
+		int64_t off;   // inicio absoluto en el archivo
+		double t_ms;   // inicio en la linea de tiempo de la pista
+		double dur_ms;
+		int64_t tam;
+	};
+	// Muestras de la pista de video principal (audio=false) o de la primera
+	// de audio AAC. original=true: las del archivo sano (tras parseOk);
+	// false: las recuperadas (tras repair).
+	std::vector<MuestraT> muestrasConTiempo(bool audio, bool original);
+	struct HuecoSincro {
+		int64_t ini = 0, fin = 0;  // zona saltada, absoluta [ini, fin)
+		// Cuanto hay que retrasar el video (ms) a partir de esta zona para
+		// que siga cuadrando con el audio (negativo: adelantarlo).
+		double correccion_video_ms = 0;
+		bool estimada = false;  // false: no hubo datos para estimarla
+	};
+	// Tras repair: una entrada por zona saltada en medio del video.
+	std::vector<HuecoSincro> estimarHuecos();
+	// Aplica estimarHuecos a la pista de video: alarga (o acorta) la
+	// duracion de los fotogramas justo antes de cada zona para que la
+	// imagen siga cuadrando con el sonido. Se llama al final de repair.
+	void compensarSincro();
+
 	// Chunks with constant sample size
 	class Chunk : public Track::Chunk {
 	public:
@@ -224,6 +253,7 @@ private:
 	}
 
 	std::vector<int64_t> unknown_lengths_;
+	std::vector<std::pair<int64_t, int64_t>> huecos_;  // zonas saltadas [ini, fin), relativas al mdat
 
 	std::string filename_ok_;
 	bool use_offset_map_ = false;
@@ -278,6 +308,7 @@ private:
 
 		addToExclude(offset-unknown_length_, unknown_length_);
 		unknown_lengths_.emplace_back(unknown_length_);
+		huecos_.emplace_back(offset - unknown_length_, offset);
 		unknown_length_ = 0;
 
 		return true;

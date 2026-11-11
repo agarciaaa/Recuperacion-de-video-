@@ -2271,6 +2271,174 @@ void Mp4::duracionesMs(double& video_ms, double& audio_ms) {
 	}
 }
 
+std::vector<Mp4::MuestraT> Mp4::muestrasConTiempo(bool audio, bool original) {
+	std::vector<MuestraT> r;
+	Track* t = nullptr;
+	for (auto& x : tracks_) {
+		if (x.is_dummy_) continue;
+		const bool es = audio ? x.codec_.name_ == "mp4a"
+		                      : (x.codec_.name_ == "avc1" || x.codec_.name_ == "hvc1");
+		if (es) { t = &x; break; }
+	}
+	if (!t || t->timescale_ <= 0) return r;
+	if (!original && !current_mdat_) return r;
+	const int64_t base = original ? 0 : current_mdat_->contentStart();
+	const double ms = 1000.0 / t->timescale_;
+	std::vector<Track::Chunk> chunks = t->chunks_;
+	if (!original && t->current_chunk_.n_samples_ &&
+	    (chunks.empty() || chunks.back().off_ != t->current_chunk_.off_))
+		chunks.push_back(t->current_chunk_);
+	// Antes de repair (Track::clear) las duraciones del sano siguen en times_.
+	const std::vector<int>& tiempos =
+	    original && !t->origTimes().empty() ? t->origTimes() : t->times_;
+	size_t idx = 0;
+	double tiempo = 0;
+	for (auto& c : chunks) {
+		int64_t off = base + c.off_;
+		for (int k = 0; k < c.n_samples_; k++, idx++) {
+			int64_t tam;
+			if (original) tam = t->getOrigSize(idx);
+			else if (idx < t->sizes_.size()) tam = t->sizes_[idx];
+			else if (t->constant_size_) tam = t->constant_size_;
+			else return r;
+			double dur;
+			if (t->constant_duration_ != -1) dur = t->constant_duration_ * ms;
+			else if (idx < tiempos.size()) dur = tiempos[idx] * ms;
+			else return r;
+			r.push_back({off, tiempo, dur, tam});
+			tiempo += dur;
+			off += tam;
+		}
+	}
+	return r;
+}
+
+namespace {
+// Puntos de encuentro: en un archivo intercalado, donde termina un bloque
+// de video y empieza uno de audio (el audio va pegado al ultimo fotograma),
+// los dos relojes van casi a la par. D = inicio del audio - fin de ese
+// fotograma. Entre dos zonas danadas D es casi constante; si cambia al
+// cruzar una zona, la zona se llevo mas tiempo de una pista que de otra.
+std::vector<std::pair<int64_t, double>> puntosEncuentro(const std::vector<Mp4::MuestraT>& V,
+                                                        const std::vector<Mp4::MuestraT>& A) {
+	std::vector<std::pair<int64_t, double>> r;  // (offset, D)
+	size_t i = 0;
+	for (const auto& a : A) {
+		while (i < V.size() && V[i].off + V[i].tam < a.off) i++;
+		if (i < V.size() && V[i].off + V[i].tam == a.off)
+			r.emplace_back(a.off, a.t_ms - (V[i].t_ms + V[i].dur_ms));
+	}
+	return r;
+}
+
+double mediana(std::vector<double> v) {
+	std::sort(v.begin(), v.end());
+	const size_t n = v.size();
+	return n % 2 ? v[n / 2] : (v[n / 2 - 1] + v[n / 2]) / 2;
+}
+}  // namespace
+
+std::vector<Mp4::HuecoSincro> Mp4::estimarHuecos() {
+	std::vector<HuecoSincro> r;
+	if (!current_mdat_ || huecos_.empty()) return r;
+	auto V = muestrasConTiempo(false, false);
+	auto A = muestrasConTiempo(true, false);
+	if (V.empty() || A.empty()) return r;
+	auto orden = [](const MuestraT& x, const MuestraT& y) { return x.off < y.off; };
+	std::sort(V.begin(), V.end(), orden);
+	std::sort(A.begin(), A.end(), orden);
+	const auto P = puntosEncuentro(V, A);
+	const int64_t base = current_mdat_->contentStart();
+	const int kPuntos = 3;
+	// Referencia: D del ultimo tramo sano con puntos de encuentro. Si entre
+	// dos zonas no hay ninguno (zonas muy seguidas), se arrastra y la
+	// correccion de las dos va junta en la siguiente zona que si tenga.
+	bool hay_ref = false;
+	double ref = 0;
+	for (size_t g = 0; g < huecos_.size(); g++) {
+		HuecoSincro h;
+		h.ini = base + huecos_[g].first;
+		h.fin = base + huecos_[g].second;
+		const int64_t antes = g ? base + huecos_[g - 1].second : 0;
+		const int64_t despues =
+		    g + 1 < huecos_.size() ? base + huecos_[g + 1].first : std::numeric_limits<int64_t>::max();
+		std::vector<double> d0, d1;
+		for (auto it = P.rbegin(); it != P.rend() && (int)d0.size() < kPuntos; ++it)
+			if (it->first < h.ini && it->first >= antes) d0.push_back(it->second);
+		for (auto it = P.begin(); it != P.end() && (int)d1.size() < kPuntos; ++it)
+			if (it->first >= h.fin && it->first < despues) d1.push_back(it->second);
+		if (!d0.empty()) {
+			ref = mediana(d0);
+			hay_ref = true;
+		}
+		if (hay_ref && !d1.empty()) {
+			h.correccion_video_ms = mediana(d1) - ref;
+			h.estimada = true;
+		}
+		r.push_back(h);
+	}
+	return r;
+}
+
+void Mp4::compensarSincro() {
+	if (!g_sincro_enabled || huecos_.empty()) return;
+	Track* tv = nullptr;
+	for (auto& x : tracks_)
+		if (!x.is_dummy_ && (x.codec_.name_ == "avc1" || x.codec_.name_ == "hvc1")) {
+			tv = &x;
+			break;
+		}
+	if (!tv || tv->timescale_ <= 0) return;
+	const auto H = estimarHuecos();
+	const auto V = muestrasConTiempo(false, false);  // en orden de muestra
+	const size_t n = V.size();
+	if (!n || (size_t)tv->getNumSamples() != n) return;
+	for (size_t k = 1; k < n; k++)
+		if (V[k].off <= V[k - 1].off) return;  // no deberia pasar: no se toca nada
+	std::vector<int> t(n);
+	if (tv->constant_duration_ != -1) std::fill(t.begin(), t.end(), tv->constant_duration_);
+	else if (tv->times_.size() == n) t = tv->times_;
+	else return;
+
+	const double ticks_ms = tv->timescale_ / 1000.0;
+	const double kMaxMs = 10000;  // mas que esto seria una estimacion rota
+	int64_t limite = 0;           // no tocar fotogramas de antes de la zona anterior
+	bool cambiado = false;
+	for (const auto& h : H) {
+		const int64_t lim = limite;
+		limite = h.fin;
+		if (!h.estimada || std::fabs(h.correccion_video_ms) > kMaxMs) continue;
+		const int64_t delta = llround(h.correccion_video_ms * ticks_ms);
+		if (!delta) continue;
+		auto it = std::lower_bound(V.begin(), V.end(), h.ini,
+		                           [](const MuestraT& m, int64_t o) { return m.off < o; });
+		if (it == V.begin()) continue;
+		const size_t i = (it - V.begin()) - 1;
+		if (V[i].off < lim) continue;
+		if (delta > 0) {
+			t[i] += (int)delta;  // la imagen se queda quieta durante el hueco
+		} else {
+			// Acortar los fotogramas anteriores, cada uno como mucho a la mitad.
+			int64_t resta = -delta;
+			for (size_t k = i + 1; k-- > 0 && resta > 0 && V[k].off >= lim;) {
+				const int64_t quita = std::min<int64_t>(resta, t[k] / 2);
+				t[k] -= (int)quita;
+				resta -= quita;
+			}
+			if (resta == -delta) continue;
+		}
+		cambiado = true;
+		g_sincro_count++;
+		g_sincro_ms += std::fabs(h.correccion_video_ms);
+		logg(LogMode::V, "sincro: zona en ", h.ini, ", video ", h.correccion_video_ms, " ms\n");
+	}
+	if (!cambiado) return;
+	tv->times_ = t;
+	tv->constant_duration_ = -1;
+	tv->duration_ = 0;
+	for (int x : t) tv->duration_ += x;
+}
+
 void Mp4::recuperadasVideo(std::vector<int64_t>& video, std::vector<int64_t>* audio) {
 	video.clear();
 	if (audio) audio->clear();
@@ -2585,6 +2753,8 @@ void Mp4::repair(const string& filename) {
 
 	g_resync_count = 0;
 	g_resync_ia_count = 0;
+	g_sincro_count = 0;
+	g_sincro_ms = 0;
 	while (chkOffset(offset)) {
 		if (tryAll(offset)) continue;
 		if (tryResync(offset)) continue;
@@ -2631,6 +2801,7 @@ void Mp4::repair(const string& filename) {
 		track.fixTimes();
 		recoverHevcCompositionOffsets(track, *mdat);
 	}
+	compensarSincro();
 
 	auto filename_fixed = getPathRepaired(filename_ok_, filename);
 	saveVideo(filename_fixed);

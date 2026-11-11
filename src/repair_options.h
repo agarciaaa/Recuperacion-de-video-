@@ -52,6 +52,9 @@ struct RepairOptions {
 	// Tras una zona danada, volver a encontrar el video (Mp4::tryResync,
 	// g_resync_enabled). Si ONNX esta activado, el modelo filtra ademas.
 	bool resinc = true;
+	// Tras una zona danada, mantener el sonido a la par de la imagen
+	// (Mp4::compensarSincro, g_sincro_enabled).
+	bool sincro = true;
 	bool hint_set = false;
 	bool hint_s = false;
 	bool hint_dyn = false;

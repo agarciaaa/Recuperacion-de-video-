@@ -52,6 +52,9 @@ struct RepairOutcome {
 	// el intento elegido).
 	int resincs = 0;
 	int resincs_ia = 0;  // de ellas, decididas por el modelo (resinc_ia.h)
+	// Zonas en las que se corrigio el desfase audio-video, y suma (ms).
+	int sincros = 0;
+	double sincro_ms = 0;
 };
 
 // Repara UN archivo con pre-vuelo + reintento automatico.

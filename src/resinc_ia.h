@@ -66,6 +66,16 @@ struct ResultadoAudio {
 		// Desfase audio-video al final del video reparado (ms): cuanto se
 		// adelanto el audio respecto a la imagen por lo que se perdio.
 		double desfase_abs_ms = 0, desfase_max_ms = 0;
+		// Por zona saltada: desfase que deja (verdad) y el que quedaria
+		// tras corregir con la estimacion del nucleo (estimarHuecos).
+		long huecos = 0, huecos_notables = 0, huecos_notables_corregidos = 0;
+		double hueco_abs_ms = 0, hueco_abs_corregido_ms = 0;
+		// Desfase al final del video, medido con tiempos: sin y con correccion.
+		double final_abs_ms = 0, final_abs_corregido_ms = 0;
+		long finales = 0;
+		// Lo que de verdad se escribe: reparando con la correccion activada.
+		double final_abs_aplicado_ms = 0, final_max_ms = 0, final_max_aplicado_ms = 0;
+		long finales_aplicados = 0, finales_notables = 0, finales_notables_aplicados = 0;
 	};
 	int videos = 0, escenarios = 0, fallos = 0;
 	PorTipo por_tipo[6];  // 0 = sin dano, 1.. = tipos de dano

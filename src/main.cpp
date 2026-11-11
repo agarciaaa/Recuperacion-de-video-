@@ -310,6 +310,8 @@ void usage() {
 	     << "    fotogramas reales y falsos se recuperan sin y con el modelo\n"
 	     << "--evaluar-audio [--semillas N] <sano.mp4>... - mide cuanto audio AAC se\n"
 	     << "    recupera y el desfase audio-video tras danos simulados en memoria\n"
+	     << "--sin-sincro - no corregir el desfase entre sonido e imagen tras una zona\n"
+	     << "    danada\n"
 	     << "--sin-resinc - no intentar volver a encontrar el video tras una zona danada\n"
 	     << "              (por defecto se hace; con ONNX activado, el modelo lo confirma)\n"
 	     << "--verificar <video> - solo comprueba un video (reparado o no) y dice si hay\n"
@@ -704,6 +706,7 @@ int main(int argc, char *argv[]) {
 			else if (a == "skip") g_skip_existing = true;
 			else if (a == "-sin-verificar") g_verificar_salida = false;
 			else if (a == "-sin-resinc") g_resync_enabled = false;
+			else if (a == "-sin-sincro") g_sincro_enabled = false;
 			else if (a == "mp") arg_mp = kExpectArg;
 			else if (a == "dec") g_off_as_hex = false;
 			else if (a == "fa") g_fast_assert = true;

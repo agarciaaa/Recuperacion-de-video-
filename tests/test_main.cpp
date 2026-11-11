@@ -959,6 +959,37 @@ static void testModeloResinc(const TempDir& dir) {
 	CHECK(g_resync_scorer == nullptr);
 }
 
+// Sincronia audio-video tras zonas danadas (Mp4::compensarSincro), medida
+// con la verdad del video sano y dano solo en memoria.
+static void testSincro(const TempDir& dir) {
+	const Bytes b = leerFixture("h264_aac.mp4");
+	CHECK(b.size() > 50000);
+	if (b.size() < 50000) return;
+	const std::string sano = dir.write("sincro ñ/sano.mp4", b);
+	ResultadoAudio r;
+	CHECK_EQ(evaluarAudio({sano}, 3, r), 0);
+	CHECK_EQ(r.videos, 1);
+	CHECK_EQ(r.fallos, 0);
+	// Sin dano: todo el audio y ningun desfase.
+	CHECK_EQ(r.por_tipo[0].audio_bien, r.por_tipo[0].audio_posibles);
+	CHECK(r.por_tipo[0].final_abs_aplicado_ms < 1);
+	long notables = 0, notables_aplicados = 0, finales = 0;
+	double antes = 0, despues = 0;
+	for (int i = 1; i < 6; i++) {
+		const auto& f = r.por_tipo[i];
+		CHECK(f.audio_bien > 0);
+		notables += f.finales_notables;
+		notables_aplicados += f.finales_notables_aplicados;
+		finales += f.finales;
+		antes += f.final_abs_ms;
+		despues += f.final_abs_aplicado_ms;
+	}
+	CHECK(finales > 0);
+	CHECK(notables_aplicados <= notables);
+	CHECK(despues <= antes);
+	CHECK(g_sincro_enabled);  // la evaluacion deja los globales como estaban
+}
+
 int main() {
 	TempDir dir;
 	testShellQuote();
@@ -980,6 +1011,7 @@ int main() {
 	testVerificar(dir);
 	testResincronizacion(dir);
 	testModeloResinc(dir);
+	testSincro(dir);
 
 	std::cout << g_checks << " comprobaciones, " << g_failures << " fallos\n";
 	return g_failures == 0 ? 0 : 1;

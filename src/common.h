@@ -67,6 +67,14 @@ extern int g_resync_count;
 extern int g_resync_ia_count;
 extern bool g_solo_simular;
 
+// Sincronia audio-video tras zonas danadas (Mp4::compensarSincro): activada
+// por defecto (--sin-sincro la apaga). g_sincro_count / g_sincro_ms: zonas
+// corregidas y suma de las correcciones (ms, en valor absoluto) en la
+// ultima reparacion.
+extern bool g_sincro_enabled;
+extern int g_sincro_count;
+extern double g_sincro_ms;
+
 const int64_t kRangeUnset = std::numeric_limits<int64_t>::min();
 
 #define UNFOLD_PARAM_PACK(pack, os) \

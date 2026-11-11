@@ -196,6 +196,7 @@ public:
 
 	std::vector<int> sizes_;
 	int constant_size_ = 0;
+	const std::vector<int>& origTimes() const { return orig_times_; }  // duraciones del archivo sano
 	std::vector<int> keyframes_; //used for 'avc1', 0 based!
 	size_t num_samples_ = 0;
 	int64_t getNumSamples() const;

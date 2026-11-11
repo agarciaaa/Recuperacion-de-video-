@@ -30,6 +30,7 @@ RepairOptions RepairOptions::fromGlobals() {
 	RepairOptions o;
 	o.verificar = g_verificar_salida;
 	o.resinc = g_resync_enabled;
+	o.sincro = g_sincro_enabled;
 	o.ignore_unknown = g_ignore_unknown;
 	o.step = Mp4::step_;
 	o.use_chunk_stats = g_use_chunk_stats;
@@ -58,6 +59,7 @@ RepairOptions RepairOptions::fromGlobals() {
 void RepairSession::apply(const RepairOptions& o) {
 	g_ignore_unknown = o.ignore_unknown;
 	g_resync_enabled = o.resinc;
+	g_sincro_enabled = o.sincro;
 	Mp4::step_ = o.step;
 	g_use_chunk_stats = o.use_chunk_stats;
 	g_stretch_video = o.stretch_video;

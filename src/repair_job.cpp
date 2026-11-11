@@ -68,6 +68,8 @@ struct Attempt {
 	uint64_t out_bytes = 0;
 	int resincs = 0;
 	int resincs_ia = 0;
+	int sincros = 0;
+	double sincro_ms = 0;
 	double desconocido = 0;  // % del mdat sin reconocer
 };
 
@@ -104,6 +106,8 @@ Attempt runAttempt(const std::string& ref, const std::string& corrupt) {
 		a.premature = mp4.premature_end_;
 		a.resincs = g_resync_count;
 		a.resincs_ia = g_resync_ia_count;
+		a.sincros = g_sincro_count;
+		a.sincro_ms = g_sincro_ms;
 		a.desconocido = mp4.unknown_percentage_;
 		a.output = mp4.getPathRepaired(ref, corrupt);
 		a.duration_ms = mp4.getDurationInMs();
@@ -307,6 +311,8 @@ RepairOutcome repairFileWithAutoRetry(const std::string& ref_path,
 	out.output_bytes = best.out_bytes;
 	out.resincs = best.resincs;
 	out.resincs_ia = best.resincs_ia;
+	out.sincros = best.sincros;
+	out.sincro_ms = best.sincro_ms;
 	if (hechos.size() > 1) {
 		out.retry_percent = best.pct;
 		std::ostringstream m;
@@ -370,6 +376,11 @@ RepairOutcome repairFileWithAutoRetry(const std::string& ref_path,
 		if (out.resincs_ia > 0)
 			ss << "; " << out.resincs_ia << " las decidió el modelo de resincronización";
 		ss << ").";
+	}
+	if (out.sincros > 0) {
+		ss << "\n  Sonido e imagen: se corrigió el desfase tras " << out.sincros
+		   << (out.sincros == 1 ? " zona dañada" : " zonas dañadas") << " (en total "
+		   << (int)std::lround(out.sincro_ms) << " ms) para que sigan a la par.";
 	}
 	if (out.intentos_es.size() > 1) {
 		ss << "\n  Estrategias probadas:";

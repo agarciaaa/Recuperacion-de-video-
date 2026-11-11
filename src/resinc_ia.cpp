@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <functional>
 #include <fstream>
 #include <memory>
 #include <sstream>
@@ -133,7 +134,7 @@ void sumidero(int64_t off_abs, const char* codec, int cadena, const float* f, in
 // Guarda y restaura los globales que la simulacion cambia.
 struct GlobalesSimulacion {
 	bool ignore_unknown = g_ignore_unknown, interactive = g_interactive,
-	     skip_existing = g_skip_existing, resync = g_resync_enabled;
+	     skip_existing = g_skip_existing, resync = g_resync_enabled, sincro = g_sincro_enabled;
 	LogMode log = g_log_mode;
 	Mp4* mp4 = g_mp4;
 	GlobalesSimulacion() {
@@ -153,6 +154,7 @@ struct GlobalesSimulacion {
 		g_interactive = interactive;
 		g_skip_existing = skip_existing;
 		g_resync_enabled = resync;
+		g_sincro_enabled = sincro;
 		g_log_mode = log;
 		g_mp4 = mp4;
 	}
@@ -199,7 +201,8 @@ bool leerVerdad(const std::string& sano, std::vector<int64_t>& verdad, int64_t& 
 // fotogramas de video recuperados.
 bool simular(const std::string& sano, const std::vector<ZonaDanoSimulado>& zonas,
              std::vector<int64_t>& recuperadas, std::string& err,
-             std::vector<int64_t>* audio = nullptr) {
+             std::vector<int64_t>* audio = nullptr,
+             const std::function<void(Mp4&)>& tras = nullptr) {
 	try {
 		Mp4 mp4;
 		g_mp4 = &mp4;
@@ -215,6 +218,7 @@ bool simular(const std::string& sano, const std::vector<ZonaDanoSimulado>& zonas
 		mp4.repair(alias);
 		g_dano_simulado_activo = false;
 		mp4.recuperadasVideo(recuperadas, audio);
+		if (tras) tras(mp4);
 		g_mp4 = nullptr;
 	} catch (...) {
 		g_dano_simulado_activo = false;
@@ -443,6 +447,47 @@ int evaluarResinc(const std::vector<std::string>& sanos, const std::string& ruta
 	return 0;
 }
 
+// Tiempos verdaderos de cada muestra del video sano.
+bool tiemposVerdad(const std::string& sano, std::vector<Mp4::MuestraT>& tv,
+                   std::vector<Mp4::MuestraT>& ta) {
+	try {
+		Mp4 mp4;
+		g_mp4 = &mp4;
+		mp4.parseOk(sano);
+		tv = mp4.muestrasConTiempo(false, true);
+		ta = mp4.muestrasConTiempo(true, true);
+		g_mp4 = nullptr;
+	} catch (...) {
+		g_mp4 = nullptr;
+		return false;
+	}
+	auto orden = [](const Mp4::MuestraT& a, const Mp4::MuestraT& b) { return a.off < b.off; };
+	std::sort(tv.begin(), tv.end(), orden);
+	std::sort(ta.begin(), ta.end(), orden);
+	return !tv.empty() && !ta.empty();
+}
+
+// Retraso (verdad - recuperado, ms) de la primera muestra recuperada en
+// [desde, hasta) que sea una muestra real (o la ultima, si ultima=true).
+bool retraso(const std::vector<Mp4::MuestraT>& rec, const std::vector<Mp4::MuestraT>& verdad,
+             int64_t desde, int64_t hasta, bool ultima, double& r) {
+	auto en = [&](const Mp4::MuestraT& m) {
+		auto it = std::lower_bound(verdad.begin(), verdad.end(), m.off,
+		                           [](const Mp4::MuestraT& v, int64_t o) { return v.off < o; });
+		if (it == verdad.end() || it->off != m.off) return false;
+		r = it->t_ms - m.t_ms;
+		return true;
+	};
+	if (ultima) {
+		for (auto it = rec.rbegin(); it != rec.rend(); ++it)
+			if (it->off >= desde && it->off < hasta && en(*it)) return true;
+	} else {
+		for (const auto& m : rec)
+			if (m.off >= desde && m.off < hasta && en(m)) return true;
+	}
+	return false;
+}
+
 int evaluarAudio(const std::vector<std::string>& sanos, int semillas, ResultadoAudio& r) {
 	std::ostringstream log;
 	{
@@ -460,6 +505,8 @@ int evaluarAudio(const std::vector<std::string>& sanos, int semillas, ResultadoA
 				log << "  video " << v << " (" << nombreBase(sanos[v]) << "): se omite, sin audio AAC\n";
 				continue;
 			}
+			std::vector<Mp4::MuestraT> tv, ta;
+			const bool con_tiempos = tiemposVerdad(sanos[v], tv, ta);
 			r.videos++;
 			// Escenario -1: sin dano (lo que se pierde aunque el archivo este sano).
 			for (int t = -1; t < kNTiposDano; t++)
@@ -473,13 +520,69 @@ int evaluarAudio(const std::vector<std::string>& sanos, int semillas, ResultadoA
 						return true;
 					};
 					std::vector<int64_t> rv, ra;
+					std::vector<Mp4::MuestraT> mv, ma;
+					std::vector<Mp4::HuecoSincro> huecos;
+					auto tras = [&](Mp4& m) {
+						mv = m.muestrasConTiempo(false, false);
+						ma = m.muestrasConTiempo(true, false);
+						huecos = m.estimarHuecos();
+					};
 					r.escenarios++;
-					if (!simular(sanos[v], zonas, rv, err, &ra)) {
+					g_sincro_enabled = false;  // primero, tal cual queda sin corregir
+					if (!simular(sanos[v], zonas, rv, err, &ra, tras)) {
 						r.fallos++;
 						continue;
 					}
 					auto& f = r.por_tipo[t + 1];
 					f.reparaciones++;
+					if (con_tiempos && !mv.empty() && !ma.empty()) {
+						const int64_t inf = std::numeric_limits<int64_t>::max();
+						double corr_total = 0;
+						for (size_t g = 0; g < huecos.size(); g++) {
+							const auto& h = huecos[g];
+							const int64_t antes = g ? huecos[g - 1].fin : 0;
+							const int64_t despues = g + 1 < huecos.size() ? huecos[g + 1].ini : inf;
+							double v0, v1, a0, a1;
+							const double est = h.correccion_video_ms;
+							corr_total += est;
+							if (!retraso(mv, tv, antes, h.ini, true, v0) ||
+							    !retraso(mv, tv, h.fin, despues, false, v1) ||
+							    !retraso(ma, ta, antes, h.ini, true, a0) ||
+							    !retraso(ma, ta, h.fin, despues, false, a1))
+								continue;
+							const double necesario = (v1 - v0) - (a1 - a0);
+							f.huecos++;
+							f.hueco_abs_ms += std::fabs(necesario);
+							f.hueco_abs_corregido_ms += std::fabs(necesario - est);
+							if (std::fabs(necesario) > 45) {
+								f.huecos_notables++;
+								if (std::fabs(necesario - est) > 45) f.huecos_notables_corregidos++;
+							}
+						}
+						double vf, af;
+						if (retraso(mv, tv, 0, inf, true, vf) && retraso(ma, ta, 0, inf, true, af)) {
+							f.finales++;
+							f.final_abs_ms += std::fabs(vf - af);
+							f.final_abs_corregido_ms += std::fabs(vf - af - corr_total);
+							f.final_max_ms = std::max(f.final_max_ms, std::fabs(vf - af));
+							if (std::fabs(vf - af) > 45) f.finales_notables++;
+						}
+						// Y ahora reparando de verdad con la correccion.
+						std::vector<int64_t> rv2, ra2;
+						std::vector<Mp4::MuestraT> mv2, ma2;
+						g_sincro_enabled = true;
+						const bool ok2 = simular(sanos[v], zonas, rv2, err, &ra2, [&](Mp4& m) {
+							mv2 = m.muestrasConTiempo(false, false);
+							ma2 = m.muestrasConTiempo(true, false);
+						});
+						g_sincro_enabled = false;
+						if (ok2 && retraso(mv2, tv, 0, inf, true, vf) && retraso(ma2, ta, 0, inf, true, af)) {
+							f.finales_aplicados++;
+							f.final_abs_aplicado_ms += std::fabs(vf - af);
+							f.final_max_aplicado_ms = std::max(f.final_max_aplicado_ms, std::fabs(vf - af));
+							if (std::fabs(vf - af) > 45) f.finales_notables_aplicados++;
+						}
+					}
 					if (!vv.empty() && !va.empty()) {
 						const double dv = ms_video / vv.size(), da = ms_audio / va.size();
 						const double desfase = ((double)va.size() - ra.size()) * da -
@@ -546,6 +649,23 @@ int evaluarAudio(const std::vector<std::string>& sanos, int semillas, ResultadoA
 		snprintf(buf, sizeof buf, "            desfase audio-vídeo al final: media %.0f ms, máximo %.0f ms\n",
 		         f.desfase_abs_ms / f.reparaciones, f.desfase_max_ms);
 		ss << buf;
+		if (f.huecos) {
+			snprintf(buf, sizeof buf,
+			         "            por zona: desfase medio %.0f ms -> %.0f ms corregido; "
+			         "zonas > 45 ms: %ld -> %ld\n",
+			         f.hueco_abs_ms / f.huecos, f.hueco_abs_corregido_ms / f.huecos, f.huecos_notables,
+			         f.huecos_notables_corregidos);
+			ss << buf;
+		}
+		if (f.finales && f.finales_aplicados) {
+			snprintf(buf, sizeof buf,
+			         "            desfase al final del vídeo: media %.0f ms -> %.0f ms; máximo %.0f -> %.0f ms; "
+			         "> 45 ms: %ld -> %ld de %ld\n",
+			         f.final_abs_ms / f.finales, f.final_abs_aplicado_ms / f.finales_aplicados,
+			         f.final_max_ms, f.final_max_aplicado_ms, f.finales_notables,
+			         f.finales_notables_aplicados, f.finales);
+			ss << buf;
+		}
 	}
 	r.resumen_es = ss.str();
 	return r.videos > 0 ? 0 : 1;
