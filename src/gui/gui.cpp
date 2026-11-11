@@ -36,6 +36,7 @@ extern "C" {
 #include "../plantillas.h"
 #include "../repair_job.h"
 #include "../repair_options.h"
+#include "../tarjeta.h"
 #include "../shell_util.h"
 #include "../upath.h"
 #include "../ai/ai_provider.h"
@@ -60,6 +61,13 @@ uiLabel* Gui::Repair::label_status_;
 uiProgressBar* Gui::Repair::progressbar_;
 uiCheckbox* Gui::Repair::chk_forzar_ = nullptr;
 uiEntry* Gui::Analyze::entry_ok_;
+uiEntry* Gui::Tarjeta::entry_origen_;
+uiEntry* Gui::Tarjeta::entry_destino_;
+uiEntry* Gui::Tarjeta::entry_ref_;
+uiCheckbox* Gui::Tarjeta::chk_solo_buscar_;
+uiMultilineEntry* Gui::Tarjeta::text_entry_;
+uiProgressBar* Gui::Tarjeta::progressbar_;
+uiLabel* Gui::Tarjeta::label_estado_;
 uiMultilineEntry* Gui::Analyze::text_entry_;
 uiProgressBar* Gui::Analyze::progressbar_;
 thread* Gui::thread_ = nullptr;
@@ -199,6 +207,7 @@ void Gui::build() {
 	    {"IA", Gui::aiTab},
 	    {"Entrenar", Gui::trainTab},
 	    {"Ajustes", Gui::settingsTab},
+	    {"Tarjeta SD", Gui::tarjetaTab},
 	    {"Analizar", Gui::analyzeTab},
 	    {"Acerca de", Gui::aboutTab},
 	    {NULL, NULL},
@@ -2388,6 +2397,131 @@ uiControl* Gui::analyzeTab() {
 
 	Analyze::progressbar_ = uiNewProgressBar();
 	uiBoxAppend(v_box, uiControl(Analyze::progressbar_), 0);
+
+	return uiControl(v_box);
+}
+
+// Progreso y estado del rescate de tarjeta (desde el hilo de trabajo).
+struct EstadoTarjeta {
+	int pct;
+	std::string txt;
+};
+static void tarjetaEstadoQueued(void* p) {
+	EstadoTarjeta* e = static_cast<EstadoTarjeta*>(p);
+	if (e->pct >= 0) uiProgressBarSetValue(Gui::Tarjeta::progressbar_, e->pct);
+	if (!e->txt.empty()) uiLabelSetText(Gui::Tarjeta::label_estado_, e->txt.c_str());
+	delete e;
+}
+
+// Al terminar: el cuadro muestra solo el resumen (el registro de cada
+// reparacion y del decodificador llena el cuadro y lo tapaba).
+void Gui::Tarjeta::resumenQueued(void* p) {
+	std::string* txt = static_cast<std::string*>(p);
+	Gui::buffer_.str("");
+	uiMultilineEntrySetText(Gui::Tarjeta::text_entry_, txt->c_str());
+	delete txt;
+}
+
+uiControl* Gui::tarjetaTab() {
+	auto v_box = newVerticalBox();
+	uiBoxAppend(v_box, uiControl(uiNewLabel(
+	    "Busca los vídeos directamente en una tarjeta SD, un pendrive o una imagen de disco "
+	    "(.img/.dd), SOLO EN LECTURA: la tarjeta nunca se modifica. Copia los vídeos completos y "
+	    "junta y repara los incompletos o partidos en trozos.\n"
+	    "Para leer una unidad (por ejemplo E:) abre el programa como administrador. Si la "
+	    "tarjeta falla, haz antes una imagen de disco y rescata desde la imagen.")), 0);
+
+	auto h_origen = newHorizontalBox();
+	auto b_imagen = newButton("Imagen de disco…");
+	Tarjeta::entry_origen_ = newEntry();
+	uiButtonOnClicked(b_imagen, openFile, Tarjeta::entry_origen_);
+	uiBoxAppend(h_origen, uiControl(uiNewLabel("Tarjeta (letra, p. ej. E:) o imagen:")), 0);
+	uiBoxAppend(h_origen, uiControl(Tarjeta::entry_origen_), 1);
+	uiBoxAppend(h_origen, uiControl(b_imagen), 0);
+	uiBoxAppend(v_box, uiControl(h_origen), 0);
+
+	auto h_destino = newHorizontalBox();
+	Tarjeta::entry_destino_ = newEntry();
+	uiBoxAppend(h_destino, uiControl(uiNewLabel("Guardar en (carpeta de OTRO disco):")), 0);
+	uiBoxAppend(h_destino, uiControl(Tarjeta::entry_destino_), 1);
+	uiBoxAppend(v_box, uiControl(h_destino), 0);
+
+	auto h_ref = newHorizontalBox();
+	Tarjeta::entry_ref_ = addFileOpen(h_ref, "Referencia (opcional)");
+	uiBoxAppend(v_box, uiControl(h_ref), 0);
+
+	auto h_botones = newHorizontalBox();
+	Tarjeta::chk_solo_buscar_ = uiNewCheckbox("Solo buscar (no escribe nada)");
+	Tarjeta::label_estado_ = uiNewLabel("");
+	auto b_rescatar = newButton("Rescatar");
+	uiBoxAppend(h_botones, uiControl(Tarjeta::chk_solo_buscar_), 0);
+	uiBoxAppend(h_botones, uiControl(Tarjeta::label_estado_), 1);
+	uiBoxAppend(h_botones, uiControl(b_rescatar), 0);
+	uiBoxAppend(v_box, uiControl(h_botones), 0);
+
+	Tarjeta::text_entry_ = uiNewMultilineEntry();
+	uiMultilineEntrySetReadOnly(Tarjeta::text_entry_, 1);
+	uiBoxAppend(v_box, uiControl(Tarjeta::text_entry_), 1);
+	Tarjeta::progressbar_ = uiNewProgressBar();
+	uiBoxAppend(v_box, uiControl(Tarjeta::progressbar_), 0);
+
+	uiButtonOnClicked(b_rescatar, [](uiButton*, void*) {
+		if (thread_) {
+			std::string m = "Ya hay un trabajo en marcha";
+			if (!Gui::thread_desc_.empty()) m += " (" + Gui::thread_desc_ + ")";
+			m += ". Espera a que termine.";
+			msgBox(m.c_str());
+			return;
+		}
+		char* t = uiEntryText(Tarjeta::entry_origen_);
+		std::string origen = t ? t : "";
+		uiFreeText(t);
+		t = uiEntryText(Tarjeta::entry_destino_);
+		std::string destino = t ? t : "";
+		uiFreeText(t);
+		t = uiEntryText(Tarjeta::entry_ref_);
+		std::string ref = t ? t : "";
+		uiFreeText(t);
+		const bool solo = uiCheckboxChecked(Tarjeta::chk_solo_buscar_);
+		if (origen.empty()) {
+			msgBoxError("Escribe la letra de la tarjeta (por ejemplo E:) o elige una imagen de disco.");
+			return;
+		}
+		if (destino.empty() && !solo && tarjeta::esRutaUnidad(origen)) {
+			msgBoxError("Escribe en qué carpeta guardar lo rescatado. Tiene que estar en OTRO disco, "
+			            "nunca en la tarjeta (escribir en ella puede borrar los vídeos que se buscan).");
+			return;
+		}
+		current_text_entry_ = Tarjeta::text_entry_;
+		uiMultilineEntrySetText(current_text_entry_, "");
+		uiProgressBarSetValue(Tarjeta::progressbar_, 0);
+		setDisabled(true);
+		Gui::thread_desc_ = "el rescate de la pestaña Tarjeta SD";
+		tarjeta::OpcionesRescate o;
+		o.destino = destino;
+		o.referencia = ref;
+		o.solo_buscar = solo;
+		o.reparar = guiRepairOptions();
+		o.reparar.on_progress = nullptr;
+		o.progreso = [](int pct, const std::string& txt) {
+			uiQueueMain(tarjetaEstadoQueued, new EstadoTarjeta{pct, txt});
+		};
+		thread_ = new thread([](const std::string& origen, const tarjeta::OpcionesRescate& o) {
+			try {
+				tarjeta::ResultadoRescate r = tarjeta::rescatar(origen, o);
+				if (!r.ok) msgBoxError(r.error_es, true);
+				else {
+					cout << std::flush;
+					uiQueueMain(Tarjeta::resumenQueued, new std::string(r.resumen_es));
+				}
+				uiQueueMain(tarjetaEstadoQueued,
+				            new EstadoTarjeta{100, r.ok ? "Terminado." : "No se pudo leer el origen."});
+			}
+			CATCH_THEM();
+			ASYNC(setDisabled, false);
+			ASYNC(clearThreadQueued, nullptr);
+		}, origen, o);
+	}, NULL);
 
 	return uiControl(v_box);
 }

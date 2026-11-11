@@ -81,6 +81,12 @@ fps, mismo códec — y la aplica a los datos del vídeo dañado.
 ./untrunc --sin-referencia danado.mp4
 ./untrunc --sin-referencia --perfil generico_h264_1080p30 danado.mp4
 
+# Rescatar vídeos directamente de una tarjeta SD o de una imagen de disco
+# (solo lectura; el destino tiene que estar en OTRO disco):
+./untrunc --rescatar-tarjeta E: -dst D:\Rescate
+./untrunc --rescatar-tarjeta tarjeta.img --solo-buscar
+./untrunc --rescatar-tarjeta /dev/sdb referencia.mp4 -dst ~/Rescate
+
 # Comprobar si un vídeo se ve bien y dónde tiene errores:
 ./untrunc --verificar video_reparado.mp4
 
@@ -102,6 +108,49 @@ Perfiles disponibles (`profiles/profiles.json`):
 `samsung_h264_1080p30`, `gopro_h264_1080p60`, `gopro_hevc_4k30`,
 `dji_h264_4k30`, `sony_xavc_1080p30`, `canon_hevc_4k30`,
 `obs_x264_1080p30`.
+
+## Rescate desde la tarjeta SD
+
+Muchas veces el vídeo no está en un archivo, sino perdido en la tarjeta:
+la cámara se apagó grabando, se borró, o un programa de «recuperar archivos
+borrados» lo devolvió roto porque la tarjeta lo guardó en trozos. La pestaña
+**Tarjeta SD** (o `--rescatar-tarjeta`) busca los vídeos directamente en la
+tarjeta, en un pendrive o en una imagen de disco (`.img`/`.dd`):
+
+1. Lee el origen **solo en lectura**, en bloques grandes. Nunca escribe en la
+   tarjeta, y no deja guardar el resultado en ella. Un sector ilegible se
+   toma como ceros y se avisa (si la tarjeta falla, haz antes una imagen).
+2. Busca el principio de cada vídeo (`ftyp` al principio de un sector) y
+   sigue su estructura.
+3. **Vídeo completo**: se copia tal cual y se comprueba decodificándolo.
+4. **Grabación cortada** (sin índice): se copian sus datos hasta donde
+   acaban, sin los ceros de la zona borrada, y se repara.
+5. **Vídeo partido en trozos alrededor de otro**: se juntan sus trozos
+   saltando el vídeo de en medio, alineando al tamaño de bloque de la
+   tarjeta (se deduce de dónde empiezan los vídeos). Si su índice venía al
+   principio y ya se ve bien, no hace falta reparar nada.
+6. Para reparar se prueban como mucho 5 referencias: la que le des; los
+   vídeos completos de la misma tarjeta (lo normal es que toda la tarjeta sea
+   de una cámara); y tus plantillas, incluidas las que el aprendizaje crea
+   solo. Se queda la que da **más segundos que se ven bien**, no la que da más
+   duración, porque una referencia de otra cámara o con otros fps «recupera»
+   más segundos, pero rotos.
+
+Medido con una imagen de prueba (dos cámaras, 32 KB por bloque). Tenía un
+vídeo completo, una grabación cortada al 70 %, un vídeo partido en dos
+alrededor de otro completo, y basura entre medias:
+
+| Vídeo | Resultado |
+|---|---|
+| Los 2 completos | idénticos al original |
+| La grabación cortada | 163 de 240 fotogramas (quedaban unos 168), se ve bien |
+| El vídeo partido | 660 de 660 fotogramas, se ve bien |
+
+Para leer una unidad en Windows hay que abrir el programa como
+administrador, y en Linux con `sudo`. Límites: si la tarjeta se formateó o se
+grabó encima, las cabeceras pueden haberse perdido. Todavía no se buscan
+vídeos sin `ftyp`, ni se separan dos vídeos grabados a la vez y mezclados
+bloque a bloque (como el vídeo y su copia LRV en GoPro).
 
 ## Zonas dañadas en medio del vídeo
 

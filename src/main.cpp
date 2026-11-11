@@ -40,6 +40,7 @@
 #include "ai/onnx/onnx_provider.h"
 #include "resinc_ia.h"
 #include "aprendizaje.h"
+#include "tarjeta.h"
 
 // Modos ONNX de entrenamiento (Fase 2.5): delegan en el script
 // Python train_onnx.py, que es quien sabe crear el dataset y
@@ -311,6 +312,12 @@ void usage() {
 	     << "    fotogramas reales y falsos se recuperan sin y con el modelo\n"
 	     << "--evaluar-audio [--semillas N] <sano.mp4>... - mide cuanto audio AAC se\n"
 	     << "    recupera y el desfase audio-video tras danos simulados en memoria\n"
+	     << "--rescatar-tarjeta <unidad|imagen> [referencia.mp4] [--plantilla nombre]\n"
+	     << "    [-dst carpeta] [--solo-buscar] [--conservar-crudos] - busca los videos\n"
+	     << "    directamente en una tarjeta SD (E:, /dev/sdb) o en una imagen de disco\n"
+	     << "    (.img/.dd), SOLO EN LECTURA. Copia los completos y junta y repara los\n"
+	     << "    incompletos o partidos en trozos (con la referencia, la plantilla o las\n"
+	     << "    plantillas guardadas). El destino debe estar en otro disco.\n"
 	     << "--resumen-aprendizaje - que ha aprendido el motor de cada camara (aprende\n"
 	     << "    solo en cada reparacion con referencia: dana la referencia en memoria y\n"
 	     << "    guarda solo numeros; ni videos ni rutas)\n"
@@ -575,6 +582,40 @@ int main(int argc, char *argv[]) {
 			     << "Úsala con:\n"
 			     << "  untrunc --plantilla " << r.info.id << " <dañado.mp4>\n"
 			     << "o deja que --sin-referencia la elija sola.\n";
+			return 0;
+		}
+		if (a == "--rescatar-tarjeta") {
+			tarjeta::OpcionesRescate o;
+			o.argv0 = argv[0];
+			std::string origen;
+			for (int k = j + 1; k < argc; k++) {
+				std::string x = argv[k];
+				if ((x == "-dst" || x == "--dst") && k + 1 < argc) o.destino = argv[++k];
+				else if (x == "--plantilla" && k + 1 < argc) o.plantilla = argv[++k];
+				else if (x == "--solo-buscar") o.solo_buscar = true;
+				else if (x == "--sin-verificar") o.verificar = false;
+				else if (x == "--conservar-crudos") o.conservar_crudos = true;
+				else if (origen.empty()) origen = x;
+				else if (o.referencia.empty()) o.referencia = x;
+			}
+			if (origen.empty()) {
+				cerr << "Uso: untrunc --rescatar-tarjeta <unidad|imagen> [referencia.mp4] "
+				        "[--plantilla nombre] [-dst carpeta] [--solo-buscar]\n";
+				return 1;
+			}
+			int ultimo = -1;
+			o.progreso = [&ultimo](int pct, const std::string& txt) {
+				if (!txt.empty()) cerr << "\r" << txt << "            \n";
+				else if (pct != ultimo) cerr << "\r  " << pct << " %   " << std::flush;
+				ultimo = pct;
+			};
+			tarjeta::ResultadoRescate r = tarjeta::rescatar(origen, o);
+			cerr << "\n";
+			if (!r.ok) {
+				cerr << r.error_es << "\n";
+				return 1;
+			}
+			cout << r.resumen_es << "\n";
 			return 0;
 		}
 		if (a == "--resumen-aprendizaje") {

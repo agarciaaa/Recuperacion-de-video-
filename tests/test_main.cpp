@@ -28,6 +28,7 @@
 
 #include "../src/ai/ai_provider.h"
 #include "../src/aprendizaje.h"
+#include "../src/tarjeta.h"
 #include "../src/diagnoser.h"
 #include "../src/file.h"
 #include "../src/formatos.h"
@@ -1082,6 +1083,148 @@ static void testAprendizaje(const TempDir& dir) {
 	ponerEnv("APPDATA", old_ad);
 }
 
+// Rescate de tarjeta (tarjeta.h) sobre una imagen simulada: un video
+// completo, una grabacion cortada (sin moov, mdat de tamano 0), un video
+// partido en dos trozos alrededor de otro completo, y basura entre medias.
+static void testTarjeta(const TempDir& dir) {
+	const std::string old_home = upath::getenv("HOME"), old_up = upath::getenv("USERPROFILE"),
+	                  old_ad = upath::getenv("APPDATA");
+	const std::string casa = dir.path("casa tarjeta ñ");
+	ponerEnv("HOME", casa);
+	ponerEnv("USERPROFILE", casa);
+	ponerEnv("APPDATA", casa + "/appdata");  // sin plantillas
+
+	const Bytes A = leerFixture("h264_aac.mp4");
+	const Bytes C = leerFixture("hevc.mp4");
+	const Bytes D = leerFixture("h264.mp4");
+	CHECK(A.size() > 50000 && C.size() > 50000 && D.size() > 50000);
+	if (A.size() < 50000 || C.size() < 50000 || D.size() < 50000) return;
+	uint32_t semilla = 12345;
+	auto basura = [&semilla](Bytes& img, size_t n) {
+		for (size_t i = 0; i < n; i++) {
+			semilla = semilla * 1103515245u + 12345u;
+			img.push_back((unsigned char)(semilla >> 16));
+		}
+	};
+	auto alinear = [&basura](Bytes& img, bool con_basura) {
+		const size_t r = (4096 - img.size() % 4096) % 4096;
+		if (con_basura) basura(img, r);
+		else img.insert(img.end(), r, 0);
+	};
+	// B: ftyp + mdat de tamano 0 + el 70 % de los datos de A, sin moov.
+	Bytes B(A.begin(), A.begin() + 32);
+	const unsigned char cab[8] = {0, 0, 0, 0, 'm', 'd', 'a', 't'};
+	B.insert(B.end(), cab, cab + 8);
+	const size_t datos = 4661 + 8;  // principio de los datos del mdat de h264_aac.mp4
+	B.insert(B.end(), A.begin() + datos, A.begin() + datos + (A.size() - datos) * 7 / 10);
+
+	Bytes img;
+	basura(img, 70000);
+	alinear(img, true);
+	const size_t pa = img.size();
+	img.insert(img.end(), A.begin(), A.end());
+	alinear(img, true);
+	basura(img, 9000);
+	alinear(img, true);
+	// Que algun principio no sea multiplo de 8 KB: el cluster sale 4 KB.
+	if (img.size() % 8192 == 0) basura(img, 4096);
+	const size_t pb = img.size();
+	img.insert(img.end(), B.begin(), B.end());
+	alinear(img, false);
+	img.insert(img.end(), 3 * 1024 * 1024, 0);  // zona borrada
+	const size_t corte = C.size() / 2 / 4096 * 4096;
+	const size_t pc = img.size();
+	img.insert(img.end(), C.begin(), C.begin() + corte);
+	const size_t pd = img.size();
+	img.insert(img.end(), D.begin(), D.end());
+	alinear(img, true);
+	img.insert(img.end(), C.begin() + corte, C.end());
+	alinear(img, true);
+	basura(img, 50000);
+	const std::string ruta = dir.write("tarjeta ñ/tarjeta.img", img);
+
+	CHECK(!tarjeta::esRutaUnidad(ruta));
+	{
+		tarjeta::Fuente f;
+		std::string err;
+		CHECK(f.abrir(ruta, err));
+		CHECK_EQ(f.tam(), (uint64_t)img.size());
+		const auto v = tarjeta::buscarVideos(f);
+		CHECK_EQ(v.size(), (size_t)4);
+		if (v.size() == 4) {
+			CHECK(v[0].completo && v[0].inicio == pa && v[0].bytes() == A.size());
+			CHECK(!v[1].completo && v[1].inicio == pb && v[1].mdat_abierto && !v[1].tiene_moov);
+			// Los ceros del final no se copian (se corta a sectores enteros).
+			CHECK(v[1].bytes() >= B.size() && v[1].bytes() < B.size() + 512);
+			CHECK(!v[2].completo && v[2].inicio == pc && v[2].tiene_moov);
+			CHECK_EQ(v[2].tramos.size(), (size_t)2);
+			CHECK_EQ(v[2].bytes(), (uint64_t)C.size());
+			CHECK(v[3].completo && v[3].inicio == pd && v[3].bytes() == D.size());
+		}
+	}
+
+	// Solo buscar: no escribe nada.
+	tarjeta::OpcionesRescate o;
+	o.solo_buscar = true;
+	tarjeta::ResultadoRescate rb = tarjeta::rescatar(ruta, o);
+	CHECK(rb.ok);
+	CHECK_EQ(rb.encontrados.size(), (size_t)4);
+	CHECK(rb.rescatados.empty());
+	CHECK(!fs::exists(upath::toPath(dir.path("tarjeta ñ/Rescatados"))));
+
+	// Rescate completo, sin referencia ni plantillas.
+	o.solo_buscar = false;
+	o.destino = dir.path("rescate ñ");
+	tarjeta::ResultadoRescate r = tarjeta::rescatar(ruta, o);
+	CHECK(r.ok);
+	CHECK_EQ(r.rescatados.size(), (size_t)4);
+	auto leer = [](const std::string& p) {
+		std::ifstream f(upath::toPath(p), std::ios::binary);
+		return Bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+	};
+	if (r.rescatados.size() == 4) {
+		CHECK(r.rescatados[0].ok && leer(r.rescatados[0].salida) == A);
+		CHECK(r.rescatados[3].ok && leer(r.rescatados[3].salida) == D);
+		// Partido en dos con el moov al principio: al juntarlo queda igual
+		// que el original.
+		CHECK(r.rescatados[2].ok && leer(r.rescatados[2].salida) == C);
+		CHECK(r.rescatados[2].estado_es.find("índice intacto") != std::string::npos);
+		// Grabacion cortada: se repara con el video completo de la tarjeta.
+		CHECK(r.rescatados[1].ok);
+		CHECK(r.rescatados[1].duracion_ms > 1000);
+		CHECK(r.rescatados[1].estado_es.find("(de la tarjeta)") != std::string::npos);
+	}
+	CHECK(r.resumen_es.find("La tarjeta no se ha modificado") != std::string::npos);
+	CHECK(leer(ruta) == img);
+	int archivos = 0;
+	for (auto& e : fs::directory_iterator(upath::toPath(o.destino))) {
+		CHECK(e.path().filename().string()[0] != '.');  // ni .probando ni .mejor
+		archivos++;
+	}
+	CHECK_EQ(archivos, 4);
+
+	// El destino nunca en la unidad que se rescata.
+	std::string err;
+	CHECK(!tarjeta::destinoSeguro(ruta, ruta, err));
+#ifdef _WIN32
+	CHECK(tarjeta::esRutaUnidad("E:"));
+	CHECK(tarjeta::esRutaUnidad("\\\\.\\PhysicalDrive1"));
+	CHECK(!tarjeta::destinoSeguro("E:", "e:\\Rescate", err));
+	CHECK(!tarjeta::destinoSeguro("\\\\.\\E:", "E:/x", err));
+	CHECK(tarjeta::destinoSeguro("E:", "C:\\Rescate", err));
+#else
+	CHECK(tarjeta::esRutaUnidad("/dev/sdb"));
+#endif
+	// Con una unidad hace falta -dst.
+	tarjeta::OpcionesRescate sin_dst;
+	tarjeta::ResultadoRescate ru = tarjeta::rescatar(dir.path("no existe ñ.img"), sin_dst);
+	CHECK(!ru.ok && !ru.error_es.empty());
+
+	ponerEnv("HOME", old_home);
+	ponerEnv("USERPROFILE", old_up);
+	ponerEnv("APPDATA", old_ad);
+}
+
 int main() {
 	TempDir dir;
 	// Las reparaciones de las pruebas no aprenden (no tocar la carpeta
@@ -1108,6 +1251,7 @@ int main() {
 	testModeloResinc(dir);
 	testSincro(dir);
 	testAprendizaje(dir);
+	testTarjeta(dir);
 
 	std::cout << g_checks << " comprobaciones, " << g_failures << " fallos\n";
 	return g_failures == 0 ? 0 : 1;

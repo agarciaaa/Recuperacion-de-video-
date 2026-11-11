@@ -39,6 +39,21 @@ public:
 		static void onProgress(int percentage);
 	};
 
+	// Pestaña "Tarjeta SD" (tarjeta.h): rescate directamente de una
+	// tarjeta o de una imagen de disco, solo en lectura.
+	struct Tarjeta {
+		static uiEntry* entry_origen_;
+		static uiEntry* entry_destino_;
+		static uiEntry* entry_ref_;
+		static uiCheckbox* chk_solo_buscar_;
+		static uiMultilineEntry* text_entry_;
+		static uiProgressBar* progressbar_;
+		static uiLabel* label_estado_;
+		// Al terminar deja solo el resumen en el cuadro (hilo principal).
+		static void resumenQueued(void* texto);
+	};
+	static uiControl* tarjetaTab();
+
 private:
 	static uiWindow* window_;
 
