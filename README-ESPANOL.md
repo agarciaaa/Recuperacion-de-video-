@@ -193,7 +193,8 @@ números, la firma de la cámara (codec, resolución, marca) y una huella del
 contenido de la referencia para no repetirla. No se guardan rutas ni
 nombres de archivo. Todo está en `~/.config/untrunc/entrenamiento/aprendizaje/`
 (`base.tsv`, `camaras.tsv`, `referencias.tsv`, `estado.txt`; la base tiene
-un tope de 20 MB), y `train_onnx.py verificar-privacidad` también lo revisa.
+un tope de 100 MB, unos 800.000 casos: suficiente para dejarlo instalado
+y reparar vídeos de muchas cámaras), y `train_onnx.py verificar-privacidad` también lo revisa.
 
 Medido con 3 vídeos de prueba de 2 cámaras: se aprendieron entre 100 y 218
 casos por referencia, se crearon 2 plantillas, y el primer modelo

@@ -134,6 +134,9 @@ _PATRONES_RUTA = ("/home/", "/Users/", ":\\", ":/", "\\\\", "/tmp/", "/var/",
 # archivo mayor de 30 MB en la carpeta de entrenamiento no puede
 # ser un dataset ni un modelo válido: es un vídeo o un error.
 TAMANO_MAX_ARCHIVO = 30_000_000
+# Excepcion: la base del aprendizaje continuo (base.tsv, solo numeros)
+# puede llegar a 100 MB (tope en src/aprendizaje.cpp).
+TAMANO_MAX_BASE = 110_000_000
 
 VENTANA = 256
 N_FEATURES = 264
@@ -359,9 +362,10 @@ def verificar_privacidad(carpeta: Path):
             except OSError as e:
                 problemas.append(f"no se pudo revisar {p.name}: {e}")
                 continue
-            if tam > TAMANO_MAX_ARCHIVO:
+            limite = TAMANO_MAX_BASE if nombre == "base.tsv" else TAMANO_MAX_ARCHIVO
+            if tam > limite:
                 problemas.append(f"archivo sospechosamente grande "
-                                 f"({tam} bytes > {TAMANO_MAX_ARCHIVO}): "
+                                 f"({tam} bytes > {limite}): "
                                  f"{p.name} — no puede ser un dataset ni "
                                  f"un modelo válido")
             try:
@@ -374,7 +378,7 @@ def verificar_privacidad(carpeta: Path):
                 problemas.append(f"firma de vídeo (ftyp/moov/mdat) en "
                                  f"los primeros bytes de {p.name}: no es "
                                  f"un dataset ni un modelo")
-            if p.suffix.lower() in (".tsv", ".txt") and tam <= TAMANO_MAX_ARCHIVO:
+            if p.suffix.lower() in (".tsv", ".txt") and tam <= limite:
                 try:
                     texto = p.read_text(encoding="utf-8", errors="replace")
                 except OSError:

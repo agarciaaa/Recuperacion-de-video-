@@ -37,8 +37,9 @@ constexpr long kUmbralReentreno = 200;
 constexpr uint64_t kMdatDosSemillas = 256ull * 1024 * 1024;
 constexpr uint64_t kMdatUnaSemilla = 1024ull * 1024 * 1024;
 // La base no crece sin limite (verificar-privacidad rechaza archivos de
-// mas de 30 MB en la carpeta de entrenamiento).
-constexpr uint64_t kMaxBase = 20ull * 1024 * 1024;
+// mas de 110 MB para base.tsv). 100 MB son ~800.000 casos: de sobra
+// para un PC dedicado a recuperar videos de muchas camaras.
+constexpr uint64_t kMaxBase = 100ull * 1024 * 1024;
 
 std::string fechaHoy() {
 	std::time_t t = std::time(nullptr);
@@ -352,7 +353,7 @@ Resultado aprenderDeReparacion(const std::string& ref_path, const std::string& f
 	if (r.referencia_repetida)
 		o << "esta referencia ya se había aprendido";
 	else if (base_llena)
-		o << "la base de casos está llena (20 MB); solo se apuntan los datos de la cámara";
+		o << "la base de casos está llena (100 MB); solo se apuntan los datos de la cámara";
 	else if (r.aprendido)
 		o << r.filas << " casos nuevos de esta cámara (de la referencia, dañada en memoria)";
 	else
