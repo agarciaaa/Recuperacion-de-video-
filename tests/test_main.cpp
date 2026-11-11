@@ -12,6 +12,7 @@
 	Licencia: GNU GPL-2.0 (ver COPYING).
 */
 
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
@@ -509,11 +510,14 @@ static void testVerificar(const TempDir& dir) {
 	// Errores a menos de 1 s se juntan en un tramo; separados, no.
 	auto t = agruparErrores({7.0, 7.1, 7.5, 14.2, 3.0, -1}, 1.0, 0.04);
 	CHECK_EQ(t.size(), (size_t)3);
+	// Con tolerancia: en 32 bits (x87, 80 bits) 14.2 no sale exacto y
+	// "== 14.2" fallaba solo en la compilacion de 32 bits del CI.
+	auto cerca = [](double a, double b) { return std::fabs(a - b) < 1e-9; };
 	if (t.size() == 3) {
-		CHECK(t[0].inicio_s == 3.0 && t[0].errores == 1);
-		CHECK(t[1].inicio_s == 7.0 && t[1].errores == 3);
+		CHECK(cerca(t[0].inicio_s, 3.0) && t[0].errores == 1);
+		CHECK(cerca(t[1].inicio_s, 7.0) && t[1].errores == 3);
 		CHECK(t[1].fin_s > 7.5);
-		CHECK(t[2].inicio_s == 14.2);
+		CHECK(cerca(t[2].inicio_s, 14.2));
 	}
 	CHECK(agruparErrores({}).empty());
 

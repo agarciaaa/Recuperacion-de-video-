@@ -10,13 +10,18 @@ on:
 jobs:
   linux:
     runs-on: ubuntu-24.04
+    # Si el espejo de Ubuntu no responde, apt-get se quedaba colgado
+    # ~45 min; mejor fallar pronto y relanzar.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          APT_OPTS="-o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y --no-install-recommends \
             build-essential libavformat-dev libavcodec-dev libavutil-dev
 
       - name: Build
