@@ -452,6 +452,14 @@ int runTrainScript(const std::vector<std::string>& args, std::string& why_es,
 		// dice: antes aparecía siempre y confundía (el caso real de
 		// Angel era torch ROTO, no ausente, y la GUI ni siquiera
 		// llegaba a ejecutar el script).
+		// cmd.exe devuelve 9009 cuando no encuentra el programa.
+		if (rc == 9009 || g_last_train_script_output.find("no se reconoce") != std::string::npos ||
+		    g_last_train_script_output.find("not recognized") != std::string::npos ||
+		    g_last_train_script_output.find("command not found") != std::string::npos)
+			why_es += "\nNo se encontró Python. En Windows viene incluido en la "
+			          "carpeta python\\ del programa: si falta, vuelve a "
+			          "descomprimir el ZIP completo. En Linux: sudo apt install "
+			          "python3 python3-numpy.";
 		if (g_last_train_script_output.find("falta numpy") != std::string::npos ||
 		    g_last_train_script_output.find("no está instalado") != std::string::npos ||
 		    g_last_train_script_output.find("No module named") != std::string::npos)

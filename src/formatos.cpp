@@ -214,9 +214,11 @@ ConvertResult convertToMp4(const std::string& input,
 		return r;
 	}
 	if (!shell::commandAvailable("ffmpeg")) {
-		r.error_es = "No se encontró ffmpeg en el sistema. En Windows, instálalo con "
-		             "MSYS2 (pacman -S mingw-w64-ucrt-x86_64-ffmpeg). Sin ffmpeg no se "
-		             "puede convertir este formato a MP4.";
+		r.error_es = "No se encontró ffmpeg. En Windows viene incluido junto al "
+		             "programa (ffmpeg.exe): si falta, vuelve a descomprimir el ZIP "
+		             "completo. En Linux, instálalo con tu gestor de paquetes (por "
+		             "ejemplo: sudo apt install ffmpeg). Sin ffmpeg no se puede "
+		             "convertir este formato a MP4.";
 		return r;
 	}
 	r.output = output.empty() ? convertedPathDefault(input) : output;

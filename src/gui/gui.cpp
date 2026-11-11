@@ -667,10 +667,10 @@ uiControl* Gui::aiTab() {
 	uiBoxAppend(v_box, uiControl(group_local), 0);
 
 	// --- Bloque 2: LM Studio — Qwen local (localhost:1234) ---
-	auto group_lm = newGroup("2 · LM Studio — Qwen local (localhost:1234)");
+	auto group_lm = newGroup("2 · LM Studio — Qwen local (avanzado, opcional)");
 	auto v_lm = newVerticalBox();
 	Ai::chk_lmstudio_ = uiNewCheckbox("Activar LM Studio (Qwen local)");
-	auto label_lm_info = uiNewLabel("Qwen solo razona sobre el diagnóstico en texto. El vídeo nunca sale de tu PC.");
+	auto label_lm_info = uiNewLabel("Avanzado: necesita LM Studio instalado aparte con Qwen cargado. No hace falta para reparar.\nQwen solo razona sobre el diagnóstico en texto. El vídeo nunca sale de tu PC.");
 	auto h_lm_endpoint = newHorizontalBox();
 	auto label_lm_endpoint = uiNewLabel("      Endpoint");
 	Ai::entry_lm_endpoint_ = uiNewEntry();

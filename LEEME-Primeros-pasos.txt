@@ -11,6 +11,11 @@ Licencia: GNU GPL-2.0 (ver COPYING). Gratis y de código abierto.
 - AVCODEC-57.DLL, AVFORMAT-57.DLL, AVUTIL-55.DLL, ... -> librerías FFmpeg
   que necesitan los dos .exe. NO las borres ni las muevas: deben estar
   en la misma carpeta que los .exe.
+- ffmpeg.exe, ffprobe.exe -> FFmpeg incluido: lo usa el programa para
+  reparar sin referencia, convertir formatos (MKV, AVI...) y sacar la
+  miniatura. No hace falta instalar nada.
+- python\ -> Python 3 + numpy incluidos: los usa la pestaña "Entrenar"
+  y el aprendizaje automático. No hace falta instalar Python.
 - profiles/profiles.json -> perfiles de cámaras (iPhone, Samsung, GoPro,
   DJI, Sony, Canon, OBS y genéricos) para reparar sin referencia.
 - models/onnx_base/ -> modelo base pequeño (77 KB) del motor ONNX.
@@ -43,12 +48,14 @@ mismo celular, deja que termine de guardar y úsalo como referencia.
 
 OTRAS PESTAÑAS
 --------------
-- "IA": activa o desactiva cada conexión de IA (local, LM Studio-Qwen,
-  externa). La IA local está activada por defecto; las otras dos,
-  apagadas. La IA nunca genera vídeo: solo ayuda a encontrar la
-  estructura del vídeo dañado y a explicar en español qué falló.
+- "IA": activa o desactiva cada conexión de IA. La IA local está
+  activada por defecto y es la única que necesitas. LM Studio-Qwen y
+  la IA externa son CONFIGURACIÓN AVANZADA y opcional (ver más abajo):
+  vienen apagadas y el programa repara igual sin ellas. La IA nunca
+  genera vídeo: solo ayuda a encontrar la estructura del vídeo dañado
+  y a explicar en español qué falló.
 - "Entrenar": entrena el motor ONNX pequeño con tus propios vídeos
-  buenos y corruptos. Necesita Python 3 + numpy (ver "QUÉ HACE FALTA").
+  buenos y corruptos. Usa el Python que viene incluido en la carpeta.
   No se guarda ningún vídeo: solo se guardan fragmentos de 256 bytes
   con su etiqueta, y la base queda guardada para no volver a cargar
   los vídeos cada vez.
@@ -109,21 +116,27 @@ PRIVACIDAD: NADA SALE DE TU PC (SALVO QUE TÚ LO ACTIVES)
 
 QUÉ HACE FALTA (ADEMÁS DE ESTE ZIP)
 -----------------------------------
-- Windows 10 u 11, 64 bits. No necesita instalación: es portable,
-  se puede mover la carpeta entera a otro disco o USB.
-- Para reparar CON referencia sana: nada más.
-- Para reparar SIN referencia o convertir otros formatos (MKV, AVI...):
-  ffmpeg en el PATH. Si no está, el programa te lo dirá en español.
-  La forma más fácil: instalar MSYS2 y ejecutar
-  "pacman -S mingw-w64-x86_64-ffmpeg" (o usar un ffmpeg portable
-  y añadir su carpeta al PATH). El ZIP ya trae las librerías FFmpeg
-  (DLLs) que usa el programa, pero NO el programa ffmpeg.exe en sí.
-- Para la pestaña "Entrenar": Python 3 + numpy. En MSYS2:
-  "pacman -S mingw-w64-x86_64-python mingw-w64-x86_64-python-numpy".
-  Sin Python, el resto del programa funciona igual.
-- Para usar Qwen: LM Studio abierto, con Qwen 3.5 o 3.6 cargado y
-  el servidor en marcha (http://localhost:1234). Sin LM Studio,
-  el resto del programa funciona igual.
+- Windows 10 u 11, 64 bits. Nada más: no necesita instalación y ya
+  trae todo lo que usa (FFmpeg, Python 3 y numpy). Es portable: se
+  puede mover la carpeta entera a otro disco o USB.
+- Descomprime el ZIP COMPLETO y no separes los archivos: si mueves
+  untrunc-gui.exe solo, sin el resto de la carpeta, no arrancará.
+- Para rescatar vídeos directamente de una tarjeta SD (pestaña
+  "Tarjeta SD"): abre el programa con clic derecho > "Ejecutar como
+  administrador". Windows solo deja leer la tarjeta entera así.
+
+CONFIGURACIÓN AVANZADA (OPCIONAL)
+---------------------------------
+No hace falta para reparar vídeos. Es para quien ya conoce estas
+herramientas y quiere una segunda opinión de un modelo de lenguaje:
+- LM Studio con Qwen: instala LM Studio aparte (lmstudio.ai), descarga
+  en él un modelo Qwen 3.5 o 3.6, cárgalo y arranca su servidor local
+  (http://localhost:1234). Después, en la pestaña "IA", marca
+  "Activar LM Studio" y pulsa "Probar conexión con LM Studio".
+  Qwen solo lee el diagnóstico en texto: no ve ni recibe el vídeo.
+- IA externa: necesita una dirección (endpoint) y una clave de API
+  de un servicio de IA. Viene apagada.
+Sin estas dos, el programa funciona exactamente igual.
 
 LO QUE NINGUNA VERSIÓN PUEDE HACER
 ----------------------------------

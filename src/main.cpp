@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 
+#include "upath.h"
 #include "libavutil/ffversion.h"
 
 #include "mp4.h"
@@ -462,6 +463,8 @@ void parseRange(const string& s) {
 }
 
 int main(int argc, char *argv[]) {
+	// ffmpeg y Python del paquete portable (si vienen junto al .exe).
+	upath::usarHerramientasIncluidas();
 	const int kExpectArg = -22;
 	bool show_info = false;
 	bool show_tracks = false;

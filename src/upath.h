@@ -57,6 +57,13 @@ std::string getenv(const char* name);
 // Ruta completa del ejecutable en UTF-8 ("" si no se sabe).
 std::string executablePath();
 
+// Windows: antepone al PATH de este proceso la carpeta del programa
+// (si trae ffmpeg.exe) y su Python incluido (python\bin), para que
+// ffmpeg, ffprobe y python del paquete portable se usen sin instalar
+// nada. Si existen esas carpetas, ganan a cualquier otra copia del
+// sistema. Sin ellas (desarrollo) o fuera de Windows no hace nada.
+void usarHerramientasIncluidas();
+
 } // namespace upath
 
 #endif // UNTR_UPATH_H

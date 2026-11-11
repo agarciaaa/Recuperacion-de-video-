@@ -131,6 +131,63 @@ if [ "$PLATAFORMA" = windows ]; then
 	done
 fi
 
+# ffmpeg.exe/ffprobe.exe y Python 3 + numpy incluidos (solo Windows),
+# para que el usuario no tenga que instalar nada: el modo sin
+# referencia, la conversión de formatos y la miniatura usan ffmpeg;
+# la pestaña Entrenar y el aprendizaje automático usan Python + numpy.
+# El programa los antepone a su PATH al arrancar
+# (upath::usarHerramientasIncluidas). Las DLL se buscan con objdump,
+# de forma recursiva, entre las de $MINGW_PREFIX/bin.
+if [ "$PLATAFORMA" = windows ]; then
+	declare -A DLL_VISTA
+	# copiar_dlls <binario> <destino> [mayus]: copia las DLL de
+	# $MINGW_PREFIX/bin que necesita el binario (y las de esas DLL).
+	copiar_dlls() {
+		local bin="$1" dest="$2" mayus="${3:-}" d low nombre
+		for d in $(objdump -p "$bin" 2>/dev/null | awk '/DLL Name:/{print $3}'); do
+			low=${d,,}
+			[ -n "${DLL_VISTA[$dest|$low]:-}" ] && continue
+			DLL_VISTA[$dest|$low]=1
+			[ -f "$MINGW_PREFIX/bin/$d" ] || continue
+			nombre="$d"
+			[ -n "$mayus" ] && nombre=$(echo "$d" | tr '[:lower:]' '[:upper:]')
+			[ -f "$dest/$nombre" ] || cp "$MINGW_PREFIX/bin/$d" "$dest/$nombre"
+			copiar_dlls "$MINGW_PREFIX/bin/$d" "$dest" "$mayus"
+		done
+	}
+
+	echo "== ffmpeg.exe y ffprobe.exe (desde $MINGW_PREFIX/bin) =="
+	for e in ffmpeg.exe ffprobe.exe; do
+		[ -f "$MINGW_PREFIX/bin/$e" ] || { echo "ERROR: falta $MINGW_PREFIX/bin/$e (pacman -S mingw-w64-x86_64-ffmpeg)." >&2; exit 1; }
+		cp -v "$MINGW_PREFIX/bin/$e" "$STAGE/$e"
+		copiar_dlls "$MINGW_PREFIX/bin/$e" "$STAGE" mayus
+	done
+
+	echo "== Python 3 + numpy (desde $MINGW_PREFIX) =="
+	PY_BIN="$MINGW_PREFIX/bin/python.exe"
+	[ -f "$PY_BIN" ] || { echo "ERROR: falta $PY_BIN (pacman -S mingw-w64-x86_64-python mingw-w64-x86_64-python-numpy)." >&2; exit 1; }
+	PYV=$("$PY_BIN" -c 'import sys;print(f"{sys.version_info[0]}.{sys.version_info[1]}")')
+	PY_LIB="$MINGW_PREFIX/lib/python$PYV"
+	[ -d "$PY_LIB/site-packages/numpy" ] || { echo "ERROR: falta numpy (pacman -S mingw-w64-x86_64-python-numpy)." >&2; exit 1; }
+	PY_DEST="$STAGE/python"
+	mkdir -p "$PY_DEST/bin" "$PY_DEST/lib/python$PYV/site-packages"
+	cp "$PY_BIN" "$PY_DEST/bin/python.exe"
+	copiar_dlls "$PY_BIN" "$PY_DEST/bin"
+	# Biblioteca estándar sin pruebas, IDLE, tkinter ni cachés.
+	tar -C "$PY_LIB" -cf - \
+		--exclude='./site-packages' --exclude='./test' --exclude='./idlelib' \
+		--exclude='./tkinter' --exclude='./turtledemo' --exclude='./ensurepip' \
+		--exclude='./lib2to3' --exclude='./config-*' \
+		--exclude='__pycache__' --exclude='*/tests' \
+		--exclude='_tkinter*.pyd' --exclude='_curses*.pyd' . \
+		| tar -C "$PY_DEST/lib/python$PYV" -xf -
+	tar -C "$PY_LIB/site-packages" -cf - --exclude='__pycache__' --exclude='*/tests' --exclude='*.a' --exclude='*/include' numpy \
+		| tar -C "$PY_DEST/lib/python$PYV/site-packages" -xf -
+	while read -r p; do copiar_dlls "$p" "$PY_DEST/bin"; done \
+		< <(find "$PY_DEST/lib/python$PYV" -name '*.pyd')
+	echo "Python $PYV incluido: $(du -sh "$PY_DEST" | cut -f1)"
+fi
+
 # Datos: perfiles de cámaras, modelo base ONNX y script de entrenamiento.
 # Rutas DENTRO del ZIP (las que busca el código, ver onnx_provider.cpp
 # findTrainScript/findBaseModelDir y profile_db.cpp loadProfiles):
@@ -157,9 +214,14 @@ if [ "$PLATAFORMA" = windows ]; then
 	for f in "$EXE_CLI" "$EXE_GUI" COPYING README.md README-ESPANOL.md \
 		LEEME-Primeros-pasos.txt profiles/profiles.json \
 		models/onnx_base/modelo.onnx models/onnx_base/pesos.json \
-		models/onnx_base/model_info.json tools/train_onnx.py; do
+		models/onnx_base/model_info.json tools/train_onnx.py \
+		ffmpeg.exe ffprobe.exe python/bin/python.exe; do
 		[ -f "$STAGE/$f" ] || { echo "ERROR: falta en el paquete: $f" >&2; exit 1; }
 	done
+	# ffmpeg y Python incluidos deben arrancar (-B: sin escribir .pyc).
+	"$STAGE/ffmpeg.exe" -hide_banner -version >/dev/null 2>&1 || { echo "ERROR: el ffmpeg.exe del paquete no arranca." >&2; exit 1; }
+	(cd / && PYTHONHOME= PYTHONPATH= "$STAGE/python/bin/python.exe" -B -c 'import numpy, json, hashlib, argparse') \
+		|| { echo "ERROR: el Python del paquete no arranca o no encuentra numpy." >&2; exit 1; }
 	# Al menos una DLL de FFmpeg (AVCODEC/AVFORMAT/AVUTIL) debe estar.
 	ls "$STAGE"/AV*.DLL >/dev/null 2>&1 || { echo "ERROR: no se copió ninguna DLL de FFmpeg (AV*.DLL)." >&2; exit 1; }
 else

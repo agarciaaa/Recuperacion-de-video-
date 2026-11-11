@@ -61,6 +61,28 @@ std::string executablePath() {
 	return narrow(buf);
 }
 
+void usarHerramientasIncluidas() {
+	const std::string self = executablePath();
+	if (self.empty()) return;
+	const fs::path dir = toPath(self).parent_path();
+	const fs::path py = dir / "python" / "bin";
+	std::error_code ec;
+	const bool hay_ffmpeg = fs::exists(dir / "ffmpeg.exe", ec);
+	const bool hay_python = fs::exists(py / "python.exe", ec);
+	std::wstring delante;
+	if (hay_ffmpeg) delante += dir.wstring() + L";";
+	if (hay_python) delante += py.wstring() + L";";
+	if (delante.empty()) return;
+	const wchar_t* actual = _wgetenv(L"PATH");
+	_wputenv((L"PATH=" + delante + (actual ? actual : L"")).c_str());
+	// Un PYTHONHOME/PYTHONPATH de otra instalación haría que el
+	// Python incluido cargara una biblioteca estándar ajena.
+	if (hay_python) {
+		_wputenv(L"PYTHONHOME=");
+		_wputenv(L"PYTHONPATH=");
+	}
+}
+
 #else
 
 fs::path toPath(const std::string& utf8) { return fs::path(utf8); }
@@ -86,6 +108,10 @@ std::string executablePath() {
 	return ec ? std::string() : self.string();
 }
 
+#endif
+
+#ifndef _WIN32
+void usarHerramientasIncluidas() {}
 #endif
 
 } // namespace upath

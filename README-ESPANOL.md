@@ -30,9 +30,10 @@ fps, mismo códec — y la aplica a los datos del vídeo dañado.
   OBS y genéricos). Permite reparar **sin referencia** con `--perfil`.
 - **IA externa opt-in** (Fase 2): apagada por defecto; solo recibe un
   paquete de diagnóstico en texto de menos de 50 KB, nunca el vídeo.
-- **LM Studio — Qwen local** (Fase 2): conector a Qwen 3.5/3.6 en
-  `http://localhost:1234`. Qwen solo razona sobre el diagnóstico en
-  texto; el vídeo nunca sale de la PC.
+- **LM Studio — Qwen local** (Fase 2, *configuración avanzada y
+  opcional*): conector a Qwen 3.5/3.6 en `http://localhost:1234`. Hay
+  que instalar LM Studio aparte; no hace falta para reparar. Qwen solo
+  razona sobre el diagnóstico en texto; el vídeo nunca sale de la PC.
 - **Pestaña "IA"** en la GUI: cada conexión tiene su check para
   activar/desactivar y sus inputs (endpoint, modelo, clave, tiempo
   de espera), con los inputs en gris cuando la conexión está apagada.
@@ -40,13 +41,15 @@ fps, mismo códec — y la aplica a los datos del vídeo dañado.
   19.172 parámetros (`.onnx` de 77 KB) con tus propios vídeos buenos
   y corruptos. No se guarda ningún vídeo: solo ventanas de 256 bytes
   con su etiqueta. La base (dataset + modelo) persiste entre sesiones;
-  las listas de vídeos no se guardan. Necesita Python 3 + numpy.
+  las listas de vídeos no se guardan. Usa Python 3 + numpy (el ZIP
+  de Windows ya los trae).
 - **Varios formatos**: directo MP4, MOV, M4V, 3GP (también HEVC);
   MKV, AVI, WMV, WebM, FLV, MPG y MTS tras convertir a MP4
   (botón "Convertir a MP4" o `--convertir-a-mp4`). La conversión no
   repara por sí sola: después hay que reparar el MP4 resultante.
 - **ZIP portable** (Fase 3.2): `untrunc.exe` + `untrunc-gui.exe` +
-  DLLs FFmpeg + `profiles/` + `models/onnx_base/` +
+  DLLs FFmpeg + `ffmpeg.exe`/`ffprobe.exe` + `python/` (Python 3 +
+  numpy) + `profiles/` + `models/onnx_base/` +
   `tools/train_onnx.py` + este README + `LEEME-Primeros-pasos.txt`
   + `COPYING`. Sin instalador y **sin firma de código** (el
   certificado cuesta dinero; ver el aviso de SmartScreen en el
@@ -96,7 +99,7 @@ fps, mismo códec — y la aplica a los datos del vídeo dañado.
 ./untrunc --convertir-a-mp4 video.mkv
 ./untrunc referencia.mp4 video_convertido.mp4
 
-# Entrenar el motor ONNX (necesita Python 3 + numpy):
+# Entrenar el motor ONNX (Python 3 + numpy; incluidos en el ZIP de Windows):
 ./untrunc --entrenar-onnx --buenos ref.mp4 --corruptos danado.mp4
 ./untrunc --resumen-onnx
 ```
@@ -227,8 +230,8 @@ motor aprende de esa cámara automáticamente, sin preguntar:
    poder rescatar la próxima vez sin referencia.
 4. **Reentrenamiento**: con 200 casos nuevos de los que decide el modelo, o
    con una cámara nueva (desde 2 cámaras), se reentrena el modelo de
-   resincronización (necesita Python 3 + numpy; sin Python se apunta y se
-   hace más tarde). El nuevo **solo sustituye al que hay si lo mejora en
+   resincronización (con Python 3 + numpy, que el ZIP de Windows ya trae;
+   sin Python se apunta y se hace más tarde). El nuevo **solo sustituye al que hay si lo mejora en
    cámaras no vistas sin aceptar ningún falso**; si no, el motor sigue
    igual.
 
@@ -330,16 +333,17 @@ En Windows, `~` es tu carpeta de usuario (`%USERPROFILE%`).
 
 ## Requisitos
 
-- Windows 10/11 de 64 bits (ZIP portable, sin instalación).
-- Para reparar con referencia: nada más.
-- Para reparar sin referencia, convertir formatos o la vista previa:
-  `ffmpeg` (y `ffprobe` para convertir) en el PATH. El ZIP trae las
-  DLLs de FFmpeg que enlazan los `.exe`, pero no el `ffmpeg.exe`.
-  En MSYS2: `pacman -S mingw-w64-x86_64-ffmpeg`.
-- Para entrenar (pestaña "Entrenar"): Python 3 + numpy. En MSYS2:
-  `pacman -S mingw-w64-x86_64-python mingw-w64-x86_64-python-numpy`.
-- Para Qwen: LM Studio con Qwen 3.5/3.6 cargado y servidor en
-  `http://localhost:1234`.
+- **Windows:** 10/11 de 64 bits y nada más. El ZIP portable (sin
+  instalación) ya trae `ffmpeg.exe`, `ffprobe.exe` y Python 3 + numpy
+  (carpeta `python/`); el programa los usa antes que cualquier otra
+  copia del sistema. Para leer una tarjeta SD entera, ejecutarlo como
+  administrador.
+- **Linux:** `ffmpeg` (y `ffprobe`) y, para entrenar, `python3` +
+  `numpy` del sistema (`sudo apt install ffmpeg python3-numpy`).
+- **Configuración avanzada (opcional):** para Qwen, LM Studio
+  instalado aparte con Qwen 3.5/3.6 cargado y servidor en
+  `http://localhost:1234`; para la IA externa, endpoint y clave de
+  API. Ninguna de las dos hace falta para reparar.
 
 ## Privacidad
 

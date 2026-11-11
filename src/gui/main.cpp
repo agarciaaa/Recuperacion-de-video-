@@ -3,6 +3,7 @@
 
 //#include "libavutil/ffversion.h"
 #include "../common.h"
+#include "../upath.h"
 #include "../ai/onnx/onnx_provider.h"
 #include "gui.h"
 
@@ -13,6 +14,8 @@ int main(int argc, char* argv[]) {
 	g_is_gui = true;
 
 	argv_as_utf8(argc, argv);
+	// ffmpeg y Python del paquete portable (si vienen junto al .exe).
+	upath::usarHerramientasIncluidas();
 
 	// Fase 3 §6: guardar argv[0] para que ONNX encuentre
 	// models/onnx_base/ junto al .exe también desde la GUI.

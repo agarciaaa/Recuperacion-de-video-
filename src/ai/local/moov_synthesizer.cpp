@@ -43,9 +43,12 @@ SyntheticRef buildSyntheticReference(int width, int height, int fps,
 	}
 	// ffmpeg en el PATH (Linux, MSYS2 en Windows).
 	if (!shell::commandAvailable("ffmpeg")) {
-		r.error_es = "No se encontró ffmpeg en el sistema. El modo sin referencia necesita "
-		             "ffmpeg para generar la referencia sintética. En Windows, instálalo "
-		             "con MSYS2 (pacman -S mingw-w64-x86_64-ffmpeg) o usa una referencia sana.";
+		r.error_es = "No se encontró ffmpeg. El modo sin referencia lo necesita para "
+		             "generar la referencia sintética. En Windows viene incluido junto "
+		             "al programa (ffmpeg.exe): si falta, vuelve a descomprimir el ZIP "
+		             "completo. En Linux, instálalo con tu gestor de paquetes (por "
+		             "ejemplo: sudo apt install ffmpeg). También puedes usar una "
+		             "referencia sana.";
 		return r;
 	}
 	// Carpeta unica (tempfs.h). La referencia se usa DESPUES de esta
