@@ -595,6 +595,7 @@ ResultadoPlantillas repararConPlantillas(const std::vector<InfoPlantilla>& candi
 		RepairOptions o = opts;
 		o.dst_path = upath::fromPath(salida);
 		o.verificar = false;  // solo se comprueba la elegida, al final
+		o.aprender = false;   // la plantilla no tiene datos de los que aprender
 		RepairOutcome rep = repairFileWithAutoRetry(upath::fromPath(ref), danado, o, true);
 		std::ostringstream line;
 		line << p.id << " (" << p.resumenEs() << "): ";

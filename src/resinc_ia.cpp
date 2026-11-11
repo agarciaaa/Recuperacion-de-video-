@@ -137,7 +137,16 @@ struct GlobalesSimulacion {
 	     skip_existing = g_skip_existing, resync = g_resync_enabled, sincro = g_sincro_enabled;
 	LogMode log = g_log_mode;
 	Mp4* mp4 = g_mp4;
+	// La simulacion no debe mover la barra de progreso de la GUI ni usar
+	// el modelo activo (los datos tienen que salir del nucleo tal cual).
+	void (*progreso)(int) = g_onProgress;
+	void (*estado)(const std::string&) = g_onStatus;
+	double (*scorer)(const float*, int) = g_resync_scorer;
+	double umbral = g_resync_umbral;
 	GlobalesSimulacion() {
+		g_onProgress = nullptr;
+		g_onStatus = nullptr;
+		g_resync_scorer = nullptr;
 		g_ignore_unknown = true;  // -s: la resincronizacion solo actua asi
 		g_interactive = false;
 		g_skip_existing = false;
@@ -157,6 +166,10 @@ struct GlobalesSimulacion {
 		g_sincro_enabled = sincro;
 		g_log_mode = log;
 		g_mp4 = mp4;
+		g_onProgress = progreso;
+		g_onStatus = estado;
+		g_resync_scorer = scorer;
+		g_resync_umbral = umbral;
 	}
 };
 
@@ -326,16 +339,22 @@ double puntuar(const float* f, int n) {
 
 // ---------------------------------------------------------------------------
 int generarDatasetResinc(const std::vector<std::string>& sanos, const std::string& salida_tsv,
-                         int semillas, ResultadoResinc& r) {
-	std::ofstream out(upath::toPath(salida_tsv), std::ios::binary);
+                         int semillas, ResultadoResinc& r, bool anexar, int grupo) {
+	std::error_code ec;
+	const bool con_cabecera =
+	    !anexar || !fs::exists(upath::toPath(salida_tsv), ec) || fs::file_size(upath::toPath(salida_tsv), ec) == 0;
+	std::ofstream out(upath::toPath(salida_tsv),
+	                  anexar ? std::ios::binary | std::ios::app : std::ios::binary);
 	if (!out) {
 		r.resumen_es = "No se pudo crear " + salida_tsv;
 		return 1;
 	}
 	std::ofstream* tsv = &out;
-	out << "video\ttipo\tsemilla\tetiqueta\tcadena\tcodec";
-	for (int i = 0; i < kResincNFeat; i++) out << '\t' << kResincNombres[i];
-	out << '\n';
+	if (con_cabecera) {
+		out << "video\ttipo\tsemilla\tetiqueta\tcadena\tcodec";
+		for (int i = 0; i < kResincNFeat; i++) out << '\t' << kResincNombres[i];
+		out << '\n';
+	}
 
 	std::ostringstream log;
 	GlobalesSimulacion globales;
@@ -351,7 +370,7 @@ int generarDatasetResinc(const std::vector<std::string>& sanos, const std::strin
 		const long antes = r.filas;
 		for (int t = 0; t < kNTiposDano; t++)
 			for (int s = 1; s <= semillas; s++) {
-				g_ctx = Contexto{tsv, (int)v, t, (uint32_t)s, &verdad, &r};
+				g_ctx = Contexto{tsv, grupo >= 0 ? grupo : (int)v, t, (uint32_t)s, &verdad, &r};
 				g_resync_sink = sumidero;
 				std::vector<int64_t> rec;
 				r.escenarios++;

@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <sstream>
 
+#include "aprendizaje.h"
 #include "common.h"
 #include "file.h"
 #include "memoria.h"
@@ -71,18 +72,18 @@ struct Attempt {
 	int sincros = 0;
 	double sincro_ms = 0;
 	double desconocido = 0;  // % del mdat sin reconocer
+	aprendizaje::DatosSeguros seguros;  // lo reconocido, para aprender
 };
 
-// Si ONNX esta activado y hay un modelo de resincronizacion validado
-// ("activo 1", ver resinc_ia.h), mientras dura la reparacion decide los
-// candidatos tras una zona danada donde la cadena no decide; al salir se
-// desconecta siempre.
+// Si hay un modelo de resincronizacion validado ("activo 1", ver
+// resinc_ia.h; lo entrena el aprendizaje continuo y solo se activa si en
+// camaras no vistas no acepta ningun falso), mientras dura la reparacion
+// decide los candidatos tras una zona danada donde la cadena no decide;
+// al salir se desconecta siempre.
 struct ResincGuard {
 	bool activo = false;
 	explicit ResincGuard(bool pedir) {
 		if (!pedir) return;
-		AiConfig cfg = loadAiConfig();
-		if (!(cfg.onnx_enabled || g_onnx_enabled)) return;
 		const std::string ruta = rutaModeloResincEnUso();
 		std::string why;
 		if (!ruta.empty()) activo = activarModeloResinc(ruta, true, why);
@@ -109,8 +110,20 @@ Attempt runAttempt(const std::string& ref, const std::string& corrupt) {
 		a.sincros = g_sincro_count;
 		a.sincro_ms = g_sincro_ms;
 		a.desconocido = mp4.unknown_percentage_;
+		for (const Track& t : mp4.tracks_) {
+			if (t.handler_type_ == "vide") {
+				a.seguros.fotogramas += (long)t.sizes_.size();
+				for (int sz : t.sizes_) a.seguros.bytes_video += sz;
+				a.seguros.claves += (long)t.keyframes_.size();
+			} else if (t.handler_type_ == "soun") {
+				a.seguros.audio += (long)t.sizes_.size();
+			}
+		}
+		a.seguros.resincs = a.resincs;
+		a.seguros.sincros = a.sincros;
 		a.output = mp4.getPathRepaired(ref, corrupt);
 		a.duration_ms = mp4.getDurationInMs();
+		a.seguros.duracion_ms = a.duration_ms;
 		std::error_code ec;
 		const fs::path out_path = upath::toPath(a.output);
 		if (fs::exists(out_path, ec) && !ec)
@@ -358,6 +371,10 @@ RepairOutcome repairFileWithAutoRetry(const std::string& ref_path,
 	}
 	// Se aprende: la proxima vez, con esta camara, se prueba primero.
 	memoria::anotar(out.firma_camara, plan[mejor].s, plan[mejor].dyn);
+	// Y el motor aprende de esta camara (siempre, salvo con plantillas).
+	if (run.aprender)
+		out.aprendizaje_es =
+		    aprendizaje::aprenderDeReparacion(ref_path, out.firma_camara, best.seguros).resumen_es;
 
 	// 1.6: vista previa minima en texto: duracion + % reconocido.
 	std::ostringstream ss;
@@ -382,6 +399,7 @@ RepairOutcome repairFileWithAutoRetry(const std::string& ref_path,
 		   << (out.sincros == 1 ? " zona dañada" : " zonas dañadas") << " (en total "
 		   << (int)std::lround(out.sincro_ms) << " ms) para que sigan a la par.";
 	}
+	if (!out.aprendizaje_es.empty()) ss << "\n  " << out.aprendizaje_es;
 	if (out.intentos_es.size() > 1) {
 		ss << "\n  Estrategias probadas:";
 		for (const auto& l : out.intentos_es) ss << "\n    - " << l;

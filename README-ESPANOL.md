@@ -145,9 +145,9 @@ porque hay otra zona dañada justo después). Resultado:
 
 Conclusión: la cadena ya recupera casi todo lo recuperable, y el programa
 **no incluye ningún modelo de resincronización**. El mecanismo queda
-preparado: si entrenas uno con tus vídeos y en la validación no acepta
-ningún falso, se marca `activo 1` y se usa con ONNX activado. Si no, se
-guarda con `activo 0` y no se usa.
+preparado: si se entrena uno (a mano o con el aprendizaje continuo, más
+abajo) y en la validación no acepta ningún falso, se marca `activo 1` y se
+usa. Si no, se guarda con `activo 0` y no se usa.
 
 ```shell
 # Datos de entrenamiento: daña los vídeos SOLO en memoria (no copia ni
@@ -161,6 +161,45 @@ python3 tools/train_onnx.py entrenar-resinc --dataset datos.tsv
 
 Además, la búsqueda de estrategias ya no se para en un intento que llega
 al final pero deja más del 5 % del vídeo sin reconocer.
+
+### El motor aprende de cada reparación
+
+Cada vez que reparas un vídeo con una referencia (no con una plantilla), el
+motor aprende de esa cámara automáticamente, sin preguntar:
+
+1. **De la referencia**: la daña *solo en memoria* (los mismos 5 tipos de
+   daño) y apunta cada candidato de resincronización con su verdad exacta.
+   Cada cámara es un grupo, así que el modelo se valida siempre con cámaras
+   que no ha visto. Una misma referencia no se aprende dos veces.
+2. **Del vídeo dañado**: solo lo que el motor reconoció con seguridad
+   (fotogramas, tamaño medio, fotogramas clave, audio, resincronizaciones,
+   correcciones de sincro), en contadores por cámara.
+3. **Plantilla automática**: si esa cámara no tenía, se crea
+   `auto_<cámara>.plantilla` (solo la cabecera, sin imagen ni sonido) para
+   poder rescatar la próxima vez sin referencia.
+4. **Reentrenamiento**: con 200 casos nuevos de los que decide el modelo, o
+   con una cámara nueva (desde 2 cámaras), se reentrena el modelo de
+   resincronización (necesita Python 3 + numpy; sin Python se apunta y se
+   hace más tarde). El nuevo **solo sustituye al que hay si lo mejora en
+   cámaras no vistas sin aceptar ningún falso**; si no, el motor sigue
+   igual.
+
+El resumen de cada reparación lo dice en una línea («Aprendizaje: 218 casos
+nuevos de esta cámara…»), y `./untrunc --resumen-aprendizaje` muestra todo
+lo aprendido por cámara.
+
+Privacidad: nunca se copia ni se recorta ningún vídeo. Se guarda solo esto:
+números, la firma de la cámara (codec, resolución, marca) y una huella del
+contenido de la referencia para no repetirla. No se guardan rutas ni
+nombres de archivo. Todo está en `~/.config/untrunc/entrenamiento/aprendizaje/`
+(`base.tsv`, `camaras.tsv`, `referencias.tsv`, `estado.txt`; la base tiene
+un tope de 20 MB), y `train_onnx.py verificar-privacidad` también lo revisa.
+
+Medido con 3 vídeos de prueba de 2 cámaras: se aprendieron entre 100 y 218
+casos por referencia, se crearon 2 plantillas, y el primer modelo
+reentrenado no pasó la validación, así que se guardó sin usarse. Con
+pocos datos, lo esperable es que el modelo tarde en ganar. Lo que ayuda
+desde el primer día es la plantilla y la memoria de estrategias por cámara.
 
 ### Sonido e imagen a la par tras una zona dañada
 

@@ -55,6 +55,8 @@ struct RepairOutcome {
 	// Zonas en las que se corrigio el desfase audio-video, y suma (ms).
 	int sincros = 0;
 	double sincro_ms = 0;
+	// Lo que aprendio el motor de esta reparacion (aprendizaje.h).
+	std::string aprendizaje_es;
 };
 
 // Repara UN archivo con pre-vuelo + reintento automatico.

@@ -39,6 +39,7 @@
 #include "ai/lmstudio/lmstudio_provider.h"
 #include "ai/onnx/onnx_provider.h"
 #include "resinc_ia.h"
+#include "aprendizaje.h"
 
 // Modos ONNX de entrenamiento (Fase 2.5): delegan en el script
 // Python train_onnx.py, que es quien sabe crear el dataset y
@@ -310,10 +311,13 @@ void usage() {
 	     << "    fotogramas reales y falsos se recuperan sin y con el modelo\n"
 	     << "--evaluar-audio [--semillas N] <sano.mp4>... - mide cuanto audio AAC se\n"
 	     << "    recupera y el desfase audio-video tras danos simulados en memoria\n"
+	     << "--resumen-aprendizaje - que ha aprendido el motor de cada camara (aprende\n"
+	     << "    solo en cada reparacion con referencia: dana la referencia en memoria y\n"
+	     << "    guarda solo numeros; ni videos ni rutas)\n"
 	     << "--sin-sincro - no corregir el desfase entre sonido e imagen tras una zona\n"
 	     << "    danada\n"
 	     << "--sin-resinc - no intentar volver a encontrar el video tras una zona danada\n"
-	     << "              (por defecto se hace; con ONNX activado, el modelo lo confirma)\n"
+	     << "              (por defecto se hace; si hay un modelo validado, lo confirma)\n"
 	     << "--verificar <video> - solo comprueba un video (reparado o no) y dice si hay\n"
 	     << "              errores de imagen o sonido y en que segundos\n"
 	     << "--convertir-a-mp4 <entrada> [salida] - convierte un video MKV, AVI, WMV,\n"
@@ -571,6 +575,10 @@ int main(int argc, char *argv[]) {
 			     << "Úsala con:\n"
 			     << "  untrunc --plantilla " << r.info.id << " <dañado.mp4>\n"
 			     << "o deja que --sin-referencia la elija sola.\n";
+			return 0;
+		}
+		if (a == "--resumen-aprendizaje") {
+			cout << aprendizaje::resumenEs();
 			return 0;
 		}
 		if (a == "--evaluar-audio") {

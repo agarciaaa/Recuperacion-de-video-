@@ -120,7 +120,15 @@ from pathlib import Path
 EXT_VIDEO = {".mp4", ".mov", ".m4v", ".3gp", ".avi", ".mkv", ".webm",
              ".flv", ".wmv", ".mpg", ".mpeg", ".m2ts", ".ts"}
 ARCHIVOS_PERMITIDOS = {"dataset.npz", "dataset_manifest.json",
-                       "modelo.onnx", "pesos.json", "model_info.json"}
+                       "modelo.onnx", "pesos.json", "model_info.json",
+                       # Modelo de resincronizacion y aprendizaje continuo
+                       # (src/aprendizaje.h): solo numeros y la firma de la
+                       # camara (codec, resolucion, marca).
+                       "resinc_modelo.txt", "base.tsv", "camaras.tsv",
+                       "referencias.tsv", "estado.txt"}
+# Texto que nunca puede aparecer en los archivos del aprendizaje continuo.
+_PATRONES_RUTA = ("/home/", "/Users/", ":\\", ":/", "\\\\", "/tmp/", "/var/",
+                  ".mp4", ".mov", ".m4v", ".3gp")
 # Un dataset con el tope de 20.000 ejemplos ocupa como mucho
 # 20.000 x 264 x 4 bytes ≈ 21 MB (comprimido, menos). Cualquier
 # archivo mayor de 30 MB en la carpeta de entrenamiento no puede
@@ -366,6 +374,16 @@ def verificar_privacidad(carpeta: Path):
                 problemas.append(f"firma de vídeo (ftyp/moov/mdat) en "
                                  f"los primeros bytes de {p.name}: no es "
                                  f"un dataset ni un modelo")
+            if p.suffix.lower() in (".tsv", ".txt") and tam <= TAMANO_MAX_ARCHIVO:
+                try:
+                    texto = p.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    texto = ""
+                for patron in _PATRONES_RUTA:
+                    if patron in texto.lower():
+                        problemas.append(f"{p.name} contiene una ruta o un nombre de "
+                                         f"vídeo ({patron!r}): solo se permiten números")
+                        break
     manifiesto = carpeta / "dataset" / "dataset_manifest.json"
     if not manifiesto.exists():
         manifiesto = carpeta / "dataset_manifest.json"
@@ -1413,7 +1431,25 @@ def _umbral_sin_falsos(p, y):
     return min(0.999999, max(0.5, tope + 0.25 * (1.0 - tope)))
 
 
-def entrenar_resinc(tsv: Path, salida: Path, tipo="red"):
+RESINC_MAX_PLIEGUES = 5       # validacion por grupos (camaras): como mucho 5 pliegues
+RESINC_MAX_NEGATIVOS = 20000  # submuestreo de falsos para que entrenar no tarde horas
+
+
+def _leer_validacion(ruta: Path):
+    """(activo, reales_ok, reales_tot, falsos) de un modelo guardado, o None."""
+    try:
+        d = {}
+        for l in ruta.read_text(encoding="utf-8").splitlines():
+            c = l.split()
+            if len(c) == 2 and c[0] in ("activo", "val_reales", "val_total", "val_falsos"):
+                d[c[0]] = int(c[1])
+        return (d.get("activo", 0) == 1, d.get("val_reales", 0), d.get("val_total", 0),
+                d.get("val_falsos", 0))
+    except OSError:
+        return None
+
+
+def entrenar_resinc(tsv: Path, salida: Path, tipo="red", solo_si_mejora=False):
     try:
         nombres, video, et, cad, X = _leer_tsv_resinc(tsv)
     except (OSError, ValueError) as e:
@@ -1421,6 +1457,14 @@ def entrenar_resinc(tsv: Path, salida: Path, tipo="red"):
         return 2
     m = cad < 2
     video, et, X = video[m], et[m], X[m]
+    neg = np.flatnonzero(et == 0)
+    if len(neg) > RESINC_MAX_NEGATIVOS:
+        rng = np.random.default_rng(0)
+        quitar = rng.choice(neg, len(neg) - RESINC_MAX_NEGATIVOS, replace=False)
+        dejar = np.ones(len(et), bool)
+        dejar[quitar] = False
+        video, et, X = video[dejar], et[dejar], X[dejar]
+        print(f"(se usan {RESINC_MAX_NEGATIVOS} falsos elegidos al azar)")
     videos = sorted(set(video.tolist()))
     print(f"Candidatos sin cadena: {len(et)} ({int(et.sum())} reales) de "
           f"{len(videos)} vídeos.")
@@ -1428,11 +1472,14 @@ def entrenar_resinc(tsv: Path, salida: Path, tipo="red"):
         print("ERROR: hacen falta reales y falsos de al menos 2 vídeos.", file=sys.stderr)
         return 2
 
-    # Validacion dejando fuera un video cada vez.
+    # Validacion dejando fuera cada grupo (video o camara): con muchos
+    # grupos se reparten en RESINC_MAX_PLIEGUES pliegues.
+    pliegue = {v: i % RESINC_MAX_PLIEGUES for i, v in enumerate(videos)}
+    grupo = np.array([pliegue[v] for v in video.tolist()])
     reales_ok = falsos_ok = reales_tot = 0
     por_video = []
-    for v in videos:
-        tr, va = video != v, video == v
+    for v in sorted(set(pliegue.values())):
+        tr, va = grupo != v, grupo == v
         if et[tr].sum() == 0:
             continue
         mod = _red(X[tr], et[tr]) if tipo == "red" else _logistica(X[tr], et[tr])
@@ -1462,6 +1509,9 @@ def entrenar_resinc(tsv: Path, salida: Path, tipo="red"):
         f"{falsos_ok} falsos aceptados; {len(videos)} videos, {len(et)} candidatos.",
         "# caracteristicas: " + " ".join(nombres),
         f"activo {1 if activo else 0}",
+        f"val_reales {reales_ok}",
+        f"val_total {reales_tot}",
+        f"val_falsos {falsos_ok}",
         f"umbral {umbral:.9g}",
         f"nfeat {RESINC_NFEAT}",
     ]
@@ -1474,13 +1524,21 @@ def entrenar_resinc(tsv: Path, salida: Path, tipo="red"):
         media, escala, w, b = mod
         texto += ["media " + fmt(media), "escala " + fmt(escala),
                   f"capa {RESINC_NFEAT} 1", fmt(w), f"{b:.9g}"]
+    if solo_si_mejora and salida.exists():
+        ant = _leer_validacion(salida)
+        if ant and ant[0]:
+            mejora = activo and ant[3] == 0 and (
+                reales_ok / max(1, reales_tot) >= ant[1] / max(1, ant[2]))
+            if not mejora:
+                print(f"SIN CAMBIOS: el modelo activo ({ant[1]}/{ant[2]} reales) no se sustituye "
+                      f"por uno que no lo mejora ({reales_ok}/{reales_tot}, {falsos_ok} falsos).")
+                return 0
     tmp = salida.with_suffix(".tmp")
     tmp.write_text("\n".join(texto) + "\n", encoding="utf-8")
     os.replace(tmp, salida)
     print(f"Modelo guardado en {salida} (umbral {umbral:.4f}).")
     if activo:
-        print("ACTIVO: en vídeos no vistos no aceptó ningún falso; el programa lo usará "
-              "con ONNX activado.")
+        print("ACTIVO: en vídeos no vistos no aceptó ningún falso; el motor lo usará.")
     else:
         motivo = (f"aceptó {falsos_ok} falsos" if falsos_ok
                   else f"solo recuperó {reales_ok} reales (mínimo {RESINC_MIN_REALES})")
@@ -1568,6 +1626,8 @@ def main():
     rs.add_argument("--dataset", required=True, help="TSV de untrunc --dataset-resinc.")
     rs.add_argument("--tipo", choices=["red", "lineal"], default="red",
                     help="red: 17-8-1 (por defecto); lineal: regresión logística.")
+    rs.add_argument("--solo-si-mejora", action="store_true",
+                    help="No sustituir un modelo activo por uno que no lo mejore.")
     rs.add_argument("--salida", default=None,
                     help="Por defecto, resinc_modelo.txt en la carpeta de entrenamiento.")
     r = sub.add_parser("restablecer", help="Copia el modelo base a la carpeta del modelo activo.")
@@ -1676,7 +1736,7 @@ def main():
         return probar(modelo, ds_dir)
     if args.cmd == "entrenar-resinc":
         salida = Path(args.salida) if args.salida else dir_entrenamiento() / "resinc_modelo.txt"
-        return entrenar_resinc(Path(args.dataset), salida, args.tipo)
+        return entrenar_resinc(Path(args.dataset), salida, args.tipo, args.solo_si_mejora)
     if args.cmd == "restablecer":
         origen, destino = Path(args.base), Path(args.destino)
         if not (origen / "model_info.json").exists():

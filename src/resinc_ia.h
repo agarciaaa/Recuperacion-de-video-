@@ -41,8 +41,11 @@ struct ResultadoResinc {
 
 // Dana en memoria cada video sano con varios escenarios y escribe los
 // candidatos en salida_tsv. Devuelve 0 si escribio al menos una fila.
+// anexar: anade filas a salida_tsv si ya existe (sin repetir la cabecera).
+// grupo >= 0: se escribe en la columna "video" en vez del indice (el
+// aprendizaje usa el codigo de la camara para validar por camara).
 int generarDatasetResinc(const std::vector<std::string>& sanos, const std::string& salida_tsv,
-                         int semillas, ResultadoResinc& r);
+                         int semillas, ResultadoResinc& r, bool anexar = false, int grupo = -1);
 
 // Mismos escenarios (con otras semillas), reparando sin y con el modelo
 // (ruta_modelo; "" = solo sin modelo). Cuenta fotogramas verdaderos y

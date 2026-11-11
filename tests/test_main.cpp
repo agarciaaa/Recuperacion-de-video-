@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "../src/ai/ai_provider.h"
+#include "../src/aprendizaje.h"
 #include "../src/diagnoser.h"
 #include "../src/file.h"
 #include "../src/formatos.h"
@@ -990,8 +991,102 @@ static void testSincro(const TempDir& dir) {
 	CHECK(g_sincro_enabled);  // la evaluacion deja los globales como estaban
 }
 
+// Aprendizaje continuo (aprendizaje.h): de la referencia, danada solo en
+// memoria, salen numeros por camara; la misma referencia no se aprende dos
+// veces; plantilla automatica; nada de rutas ni videos.
+static void testAprendizaje(const TempDir& dir) {
+	const std::string old_home = upath::getenv("HOME"), old_up = upath::getenv("USERPROFILE"),
+	                  old_ad = upath::getenv("APPDATA");
+	const std::string casa = dir.path("casa aprende ñ");
+	ponerEnv("HOME", casa);
+	ponerEnv("USERPROFILE", casa);
+	ponerEnv("APPDATA", casa + "/appdata");
+	ponerEnv("UNTRUNC_NO_APRENDER", "0");
+	aprendizaje::usarCarpeta(dir.path("aprende ñ"));
+	aprendizaje::umbralReentreno(1000000000L);  // sin Python en las pruebas
+
+	const Bytes b = leerFixture("h264_aac.mp4");
+	CHECK(b.size() > 50000);
+	const std::string ref = dir.write("ref aprende ñ/sano.mp4", b);
+	const std::string firma = memoria::firmaReferencia(ref);
+	CHECK(!firma.empty());
+	CHECK_EQ(aprendizaje::codigoCamara(firma), aprendizaje::codigoCamara(firma));
+	CHECK(aprendizaje::codigoCamara(firma) >= 0);
+
+	aprendizaje::DatosSeguros d;
+	d.fotogramas = 100;
+	d.bytes_video = 100 * 2048.0;
+	d.claves = 4;
+	d.audio = 150;
+	d.resincs = 2;
+	d.sincros = 1;
+	d.duracion_ms = 3300;
+	aprendizaje::Resultado r1 = aprendizaje::aprenderDeReparacion(ref, firma, d);
+	CHECK(r1.aprendido);
+	CHECK(r1.camara_nueva);
+	CHECK(!r1.referencia_repetida);
+	CHECK(r1.filas > 0);
+	CHECK(r1.plantilla_creada);
+	CHECK(!r1.reentrenado);
+	CHECK_EQ(r1.camaras, 1);
+	CHECK(r1.resumen_es.find("casos nuevos") != std::string::npos);
+	CHECK(fs::exists(upath::toPath(plantillas::carpetaUsuario()) /
+	                 upath::toPath("auto_" + std::to_string(aprendizaje::codigoCamara(firma)) +
+	                               plantillas::kExtension)));
+
+	// La misma referencia otra vez: solo se apuntan los datos del danado.
+	aprendizaje::Resultado r2 = aprendizaje::aprenderDeReparacion(ref, firma, d);
+	CHECK(r2.referencia_repetida);
+	CHECK(!r2.aprendido);
+	CHECK(!r2.camara_nueva);
+	CHECK(!r2.plantilla_creada);
+	CHECK_EQ(r2.filas, 0L);
+	CHECK(r2.resumen_es.find("ya se había aprendido") != std::string::npos);
+
+	// La referencia no se toco y en su carpeta no hay nada nuevo.
+	{
+		std::ifstream f(upath::toPath(ref), std::ios::binary);
+		Bytes leido((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+		CHECK(leido == b);
+		int n = 0;
+		for (auto& e : fs::directory_iterator(upath::toPath(dir.path("ref aprende ñ")))) {
+			(void)e;
+			n++;
+		}
+		CHECK_EQ(n, 1);
+	}
+	// Solo numeros y la firma: ni rutas, ni nombres, ni videos.
+	for (const char* nombre : {"base.tsv", "camaras.tsv", "referencias.tsv", "estado.txt"}) {
+		std::ifstream f(upath::toPath(dir.path(std::string("aprende ñ/") + nombre)), std::ios::binary);
+		std::string todo((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+		CHECK(!todo.empty());
+		CHECK(todo.find(".mp4") == std::string::npos);
+		CHECK(todo.find("ñ") == std::string::npos);
+		CHECK(todo.find("sano") == std::string::npos);
+		CHECK(todo.find("ftyp") == std::string::npos || std::string(nombre) == "camaras.tsv");
+	}
+	const std::string res = aprendizaje::resumenEs();
+	CHECK(res.find("Cámaras: 1") != std::string::npos);
+	CHECK(res.find("2 reparaciones, 1 referencia") != std::string::npos);
+
+	// Desactivado (pruebas/CI): no cambia nada.
+	ponerEnv("UNTRUNC_NO_APRENDER", "1");
+	aprendizaje::Resultado r3 = aprendizaje::aprenderDeReparacion(ref, firma + " otra", d);
+	CHECK(!r3.aprendido && !r3.camara_nueva && r3.resumen_es.empty());
+	CHECK(aprendizaje::resumenEs().find("Cámaras: 1") != std::string::npos);
+
+	aprendizaje::usarCarpeta("");
+	aprendizaje::umbralReentreno(0);
+	ponerEnv("HOME", old_home);
+	ponerEnv("USERPROFILE", old_up);
+	ponerEnv("APPDATA", old_ad);
+}
+
 int main() {
 	TempDir dir;
+	// Las reparaciones de las pruebas no aprenden (no tocar la carpeta
+	// real del usuario); testAprendizaje lo activa en una carpeta aparte.
+	ponerEnv("UNTRUNC_NO_APRENDER", "1");
 	testShellQuote();
 	testFormatDuration();
 	testTempDirs();
@@ -1012,6 +1107,7 @@ int main() {
 	testResincronizacion(dir);
 	testModeloResinc(dir);
 	testSincro(dir);
+	testAprendizaje(dir);
 
 	std::cout << g_checks << " comprobaciones, " << g_failures << " fallos\n";
 	return g_failures == 0 ? 0 : 1;

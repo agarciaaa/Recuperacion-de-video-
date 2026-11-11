@@ -55,6 +55,9 @@ struct RepairOptions {
 	// Tras una zona danada, mantener el sonido a la par de la imagen
 	// (Mp4::compensarSincro, g_sincro_enabled).
 	bool sincro = true;
+	// Aprender de esta reparacion (aprendizaje.h). Siempre si, salvo
+	// cuando la referencia es una plantilla materializada (datos a cero).
+	bool aprender = true;
 	bool hint_set = false;
 	bool hint_s = false;
 	bool hint_dyn = false;
