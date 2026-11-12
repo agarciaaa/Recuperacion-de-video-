@@ -22,13 +22,9 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
     env:
-      # FFmpeg 3.3.4 de Zeranoe (archivado en web.archive.org): el mismo
-      # con el que se compila y prueba en local. Trae x264/x265 dentro de
-      # sus DLL y también ffmpeg.exe/ffprobe.exe.
-      FF_VER: "3.3.4"
+      # FFmpeg se compila aquí mismo (scripts/compilar-ffmpeg.sh): GPLv2,
+      # con x264/x265, versión y SHA256 fijados en ese guion.
       LIBUI_VER: "alpha4.1"
-      SHA_FFMPEG_DEV: 9226dfe7f386d339f529bc2ba1be1022a44c829aeeadd2d905593d176c696feb
-      SHA_FFMPEG_SHARED: 4b2890ecf26130d2f11e5d9e25ccd008cbe8cbff633504729de24bf50f1e2c57
       SHA_LIBUI: f0d262959fd96ea5caeef188b56680f7f638e7b3d8a68575ff58e4000ae75109
 
     defaults:
@@ -55,43 +51,46 @@ jobs:
           install: git zip unzip curl make diffutils
           # ntldd: lista las DLL que necesita cada .exe (empaquetar.sh).
           # python + numpy: se copian al ZIP en la carpeta python/.
-          pacboy: gcc:p ntldd:p python:p python-numpy:p
+          # nasm, pkgconf, x264, x265, zlib: para compilar FFmpeg.
+          pacboy: gcc:p ntldd:p python:p python-numpy:p nasm:p pkgconf:p x264:p x265:p zlib:p
 
-      - name: Descargar FFmpeg y libui
+      # La compilación de FFmpeg (~15 min) se guarda en caché. La clave
+      # incluye el guion y las versiones de x264/x265: las DLL de FFmpeg
+      # enlazan las de x264/x265 por nombre, así que si MSYS2 las
+      # actualiza hay que recompilar.
+      - name: Clave de caché de FFmpeg
+        id: ffclave
         run: |
-          ff_base="https://web.archive.org/https://ffmpeg.zeranoe.com/builds/win64"
+          v=$(pacman -Q mingw-w64-x86_64-x264 mingw-w64-x86_64-x265 | tr ' \n' '-_')
+          echo "clave=ffmpeg-${{ hashFiles('scripts/compilar-ffmpeg.sh') }}-${v}" >> "$GITHUB_OUTPUT"
+
+      - name: Recuperar FFmpeg de la caché
+        id: ffcache
+        uses: actions/cache/restore@v6
+        with:
+          path: .ffmpeg-build/destino
+          key: ${{ steps.ffclave.outputs.clave }}
+
+      - name: Compilar FFmpeg (GPLv2) e instalarlo en MINGW64
+        run: ./scripts/compilar-ffmpeg.sh "$PWD/.ffmpeg-build"
+
+      # Se guarda en cuanto compila, aunque luego falle otro paso.
+      - name: Guardar FFmpeg en la caché
+        if: steps.ffcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: .ffmpeg-build/destino
+          key: ${{ steps.ffclave.outputs.clave }}
+
+      - name: Descargar e instalar libui (con SHA256)
+        run: |
           libui_base="https://github.com/andlabs/libui/releases/download/${LIBUI_VER}"
-          curl -fsSL --retry 5 --retry-delay 10 "${ff_base}/dev/ffmpeg-${FF_VER}-win64-dev.zip"       -o ffmpeg-dev.zip
-          curl -fsSL --retry 5 --retry-delay 10 "${ff_base}/shared/ffmpeg-${FF_VER}-win64-shared.zip" -o ffmpeg-shared.zip
           curl -fsSL --retry 5 --retry-delay 10 "${libui_base}/libui-${LIBUI_VER}-windows-amd64-mingw-static.zip" -o libui-static.zip
-
-      - name: Comprobar SHA256 (si no cuadra, se para)
-        run: |
-          cat > SHA256SUMS <<EOF
-          ${SHA_FFMPEG_DEV}  ffmpeg-dev.zip
-          ${SHA_FFMPEG_SHARED}  ffmpeg-shared.zip
-          ${SHA_LIBUI}  libui-static.zip
-          EOF
-          sha256sum -c SHA256SUMS
-
-      - name: Instalar FFmpeg y libui en MINGW64
-        run: |
-          sysroot="$MINGW_PREFIX"
-          unzip -q ffmpeg-dev.zip
-          cp -r ffmpeg-${FF_VER}-win64-dev/include/* "${sysroot}/include/"
-          cp -r ffmpeg-${FF_VER}-win64-dev/lib/*     "${sysroot}/lib/"
-          unzip -q ffmpeg-shared.zip
-          # DLL + ffmpeg.exe + ffprobe.exe (empaquetar.sh los toma de aquí).
-          cp -r ffmpeg-${FF_VER}-win64-shared/bin/*  "${sysroot}/bin/"
-          # Licencia y README (configuración y bibliotecas) de esta compilación:
-          # empaquetar.sh los mete en LICENCIAS/ffmpeg/ del ZIP.
-          mkdir -p "${sysroot}/share/licenses/ffmpeg-zeranoe"
-          cp ffmpeg-${FF_VER}-win64-shared/LICENSE.txt ffmpeg-${FF_VER}-win64-shared/README.txt \
-             "${sysroot}/share/licenses/ffmpeg-zeranoe/"
+          echo "${SHA_LIBUI}  libui-static.zip" | sha256sum -c -
           unzip -q -d libui-static libui-static.zip
-          find libui-static -name '*.h' -exec cp {} "${sysroot}/include/" \;
-          find libui-static -name '*.a' -exec cp {} "${sysroot}/lib/" \;
-          rm -rf ffmpeg-${FF_VER}-win64-dev ffmpeg-${FF_VER}-win64-shared libui-static ./*.zip SHA256SUMS
+          find libui-static -name '*.h' -exec cp {} "$MINGW_PREFIX/include/" \;
+          find libui-static -name '*.a' -exec cp {} "$MINGW_PREFIX/lib/" \;
+          rm -rf libui-static libui-static.zip
 
       - name: Compilar
         run: |
@@ -116,6 +115,8 @@ jobs:
           mv salida/untrunc-mejorado-windows-x64.zip "salida/$nombre"
           (cd salida && sha256sum "$nombre" > "$nombre.sha256")
           cat "salida/$nombre.sha256"
+          # Código fuente exacto de FFmpeg (GPL): se adjunta a cada versión.
+          cp "$MINGW_PREFIX"/share/licenses/ffmpeg-gpl2/ffmpeg-*.tar.xz salida/
           echo "nombre=$nombre" >> "$GITHUB_OUTPUT"
 
       - name: Guardar el ZIP como artefacto
@@ -125,6 +126,7 @@ jobs:
           path: |
             salida/${{ steps.zip.outputs.nombre }}
             salida/${{ steps.zip.outputs.nombre }}.sha256
+            salida/ffmpeg-*.tar.xz
 
   release:
     needs: [windows]
@@ -159,7 +161,11 @@ jobs:
           \`LEEME-Primeros-pasos.txt\`, dentro del ZIP.
 
           SHA256 del ZIP: ver el archivo \`.sha256\` adjunto.
+
+          El ZIP incluye FFmpeg compilado como GPL-2.0-or-later; su código fuente
+          exacto es el \`ffmpeg-*.tar.xz\` adjunto. Licencias en la carpeta
+          \`LICENCIAS\` del ZIP.
           EOF
-          gh release create "$tag" dist/*.zip dist/*.sha256 \
+          gh release create "$tag" dist/*.zip dist/*.sha256 dist/ffmpeg-*.tar.xz \
             --draft --title "untrunc-mejorado ${tag}" \
             --notes-file notas.md --generate-notes --verify-tag

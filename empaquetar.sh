@@ -213,14 +213,18 @@ if [ "$PLATAFORMA" = windows ]; then
 	echo "== Licencias de terceros =="
 	LIC="$STAGE/LICENCIAS"
 	mkdir -p "$LIC/ffmpeg" "$LIC/msys2"
-	# FFmpeg es la compilación de Zeranoe (no es de MSYS2): su LICENSE.txt y
-	# su README.txt (configuración y bibliotecas incluidas) se guardan al
-	# instalarla en $MINGW_PREFIX/share/licenses/ffmpeg-zeranoe/.
-	FF_LIC="$MINGW_PREFIX/share/licenses/ffmpeg-zeranoe"
-	for f in LICENSE.txt README.txt; do
-		[ -f "$FF_LIC/$f" ] || { echo "ERROR: falta $FF_LIC/$f (cópialo del ZIP de FFmpeg de Zeranoe)." >&2; exit 1; }
+	# FFmpeg lo compila scripts/compilar-ffmpeg.sh (no es de MSYS2), que deja
+	# su licencia y su configuración en $MINGW_PREFIX/share/licenses/ffmpeg-gpl2/.
+	FF_LIC="$MINGW_PREFIX/share/licenses/ffmpeg-gpl2"
+	for f in COPYING.GPLv2 LICENSE.md CONFIGURACION.txt; do
+		[ -f "$FF_LIC/$f" ] || { echo "ERROR: falta $FF_LIC/$f (compila FFmpeg con scripts/compilar-ffmpeg.sh)." >&2; exit 1; }
 		cp "$FF_LIC/$f" "$LIC/ffmpeg/$f"
 	done
+	# Debe ser GPLv2: nada de version3 ni nonfree en el ffmpeg incluido.
+	if "$STAGE/ffmpeg.exe" -hide_banner -buildconf 2>&1 | grep -Eq -- '--enable-(version3|nonfree)'; then
+		echo "ERROR: el ffmpeg.exe incluido está compilado con --enable-version3 o --enable-nonfree (GPLv3 / no redistribuible)." >&2
+		exit 1
+	fi
 	cp "$SOURCE_DIR/docs/licencias/libui-LICENSE.txt" "$LIC/libui-LICENSE.txt"
 
 	# Paquete de MSYS2 dueño de cada binario incluido (FFmpeg se salta:
@@ -231,13 +235,21 @@ if [ "$PLATAFORMA" = windows ]; then
 		[ -n "$f" ] || continue
 		b=$(basename "$f"); low=${b,,}
 		case "$low" in ffmpeg.exe|ffprobe.exe|av*.dll|sw*.dll|postproc*.dll) continue;; esac
-		[ -f "$MINGW_PREFIX/bin/$b" ] || continue
-		p=$(pacman -Qqo "$MINGW_PREFIX/bin/$b" 2>/dev/null) || continue
+		# Las DLL que pide ffmpeg.exe se copian en MAYÚSCULAS: buscar el
+		# nombre real (pacman distingue mayúsculas).
+		real=$(ls "$MINGW_PREFIX/bin" | grep -ixF -- "$b" | head -1)
+		[ -n "$real" ] || continue
+		p=$(pacman -Qqo "$MINGW_PREFIX/bin/$real" 2>/dev/null) || continue
 		PAQ_MSYS[$p]=1
 	done <<< "$BIN_LISTA"
 	# Python (biblioteca estándar y .pyd) y numpy.
 	for f in "$MINGW_PREFIX/bin/python.exe" "$PY_LIB/site-packages/numpy/__init__.py"; do
 		p=$(pacman -Qqo "$f" 2>/dev/null) && PAQ_MSYS[$p]=1
+	done
+	# x264 y x265 van dentro del FFmpeg incluido: su licencia es obligatoria.
+	for p in x264 x265; do
+		printf '%s\n' "${!PAQ_MSYS[@]}" | grep -Eq -- "-(lib)?$p\$" \
+			|| { echo "ERROR: no se encontró el paquete de MSYS2 de $p entre las DLL incluidas." >&2; exit 1; }
 	done
 
 	{
@@ -250,13 +262,13 @@ if [ "$PLATAFORMA" = windows ]; then
 		echo "Para que el programa funcione sin instalar nada, el ZIP trae además"
 		echo "programas de terceros, cada uno con su propia licencia (en esta carpeta):"
 		echo
-		echo "1) FFmpeg 3.3.4 — ffmpeg.exe, ffprobe.exe y las DLL AV*, SW*, POSTPROC*."
-		echo "   Compilación de Zeranoe (ffmpeg.zeranoe.com, ya cerrado), con --enable-gpl"
-		echo "   y --enable-version3: licencia GNU GPL versión 3 (ffmpeg/LICENSE.txt)."
-		echo "   Configuración exacta y bibliotecas incluidas (x264, x265, ...) con sus"
-		echo "   versiones y webs: ffmpeg/README.txt."
-		echo "   Código fuente de FFmpeg 3.3.4: https://ffmpeg.org/releases/ffmpeg-3.3.4.tar.xz"
-		echo "   Copia del paquete original: https://web.archive.org/https://ffmpeg.zeranoe.com/builds/win64/shared/ffmpeg-3.3.4-win64-shared.zip"
+		echo "1) FFmpeg — ffmpeg.exe, ffprobe.exe y las DLL AV* y SW*."
+		echo "   Compilado para este proyecto con --enable-gpl, sin --enable-version3,"
+		echo "   y con x264 y x265: licencia GNU GPL versión 2 o posterior"
+		echo "   (ffmpeg/COPYING.GPLv2 y ffmpeg/LICENSE.md)."
+		echo "   Versión, configuración exacta y enlace al código fuente:"
+		echo "   ffmpeg/CONFIGURACION.txt. El código fuente también se adjunta a cada"
+		echo "   versión publicada en https://github.com/agarciaaa/untrunc-mejorado/releases"
 		echo
 		echo "2) libui alpha4.1 — interfaz gráfica, enlazada dentro de untrunc-gui.exe."
 		echo "   Licencia MIT (libui-LICENSE.txt). Código: https://github.com/andlabs/libui/tree/alpha4.1"
@@ -278,12 +290,23 @@ if [ "$PLATAFORMA" = windows ]; then
 				mkdir -p "$LIC/msys2/$corto"
 				cp "$lf" "$LIC/msys2/$corto/"
 			done < <(pacman -Qlq "$p" | grep '/share/licenses/' | grep -v '/$' || true)
+			# x264 y x265 (GPL-2.0-or-later) no traen archivo de licencia en
+			# su paquete de MSYS2: se pone el texto de la GPLv2.
+			case "$corto" in libx264|x264|x265)
+				if [ ! -d "$LIC/msys2/$corto" ]; then
+					mkdir -p "$LIC/msys2/$corto"
+					cp "$FF_LIC/COPYING.GPLv2" "$LIC/msys2/$corto/COPYING.GPLv2"
+				fi;;
+			esac
 		done
+		echo
+		echo "   x264 y x265 son GPL-2.0-or-later (su paquete de MSYS2 no trae el texto;"
+		echo "   va en msys2/libx264/ y msys2/x265/)."
 		echo
 		echo "Si algún enlace deja de funcionar, abre una incidencia en el repositorio"
 		echo "y se indicará otra forma de conseguir el código fuente."
 		echo
-		echo "English: this ZIP bundles FFmpeg 3.3.4 (Zeranoe build, GPLv3), libui (MIT)"
+		echo "English: this ZIP bundles FFmpeg (built as GPL-2.0-or-later), libui (MIT)"
 		echo "and MSYS2 packages (Python, numpy and their DLLs). Their licenses are in this"
 		echo "folder; source code locations are listed above."
 	} > "$LIC/LEEME-LICENCIAS.txt"
@@ -300,8 +323,9 @@ if [ "$PLATAFORMA" = windows ]; then
 		models/onnx_base/modelo.onnx models/onnx_base/pesos.json \
 		models/onnx_base/model_info.json tools/train_onnx.py \
 		ffmpeg.exe ffprobe.exe python/bin/python.exe \
-		LICENCIAS/LEEME-LICENCIAS.txt LICENCIAS/ffmpeg/LICENSE.txt \
-		LICENCIAS/libui-LICENSE.txt; do
+		LICENCIAS/LEEME-LICENCIAS.txt LICENCIAS/ffmpeg/COPYING.GPLv2 \
+		LICENCIAS/ffmpeg/CONFIGURACION.txt LICENCIAS/libui-LICENSE.txt \
+		LICENCIAS/msys2/libx264/COPYING.GPLv2 LICENCIAS/msys2/x265/COPYING.GPLv2; do
 		[ -f "$STAGE/$f" ] || { echo "ERROR: falta en el paquete: $f" >&2; exit 1; }
 	done
 	# ffmpeg y Python incluidos deben arrancar (-B: sin escribir .pyc).

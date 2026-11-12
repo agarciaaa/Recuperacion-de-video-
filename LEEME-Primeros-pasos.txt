@@ -8,7 +8,7 @@ Licencia: GNU GPL-2.0 (ver COPYING). Gratis y de código abierto.
 -------------------------
 - untrunc-gui.exe  -> el programa con ventana (RECOMENDADO: haz doble clic aquí)
 - untrunc.exe      -> el mismo programa en línea de comandos (opcional)
-- AVCODEC-57.DLL, AVFORMAT-57.DLL, AVUTIL-55.DLL, ... -> librerías FFmpeg
+- AVCODEC-*.DLL, AVFORMAT-*.DLL, AVUTIL-*.DLL, ... -> librerías FFmpeg
   que necesitan los dos .exe. NO las borres ni las muevas: deben estar
   en la misma carpeta que los .exe.
 - ffmpeg.exe, ffprobe.exe -> FFmpeg incluido: lo usa el programa para

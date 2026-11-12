@@ -377,23 +377,18 @@ los mismos pasos a mano.
    MINGW64**.
 2. Paquetes:
    ```shell
-   pacman -S --needed git zip unzip make mingw-w64-x86_64-gcc \
-     mingw-w64-x86_64-ntldd mingw-w64-x86_64-python mingw-w64-x86_64-python-numpy
+   pacman -S --needed git zip unzip curl make diffutils mingw-w64-x86_64-gcc \
+     mingw-w64-x86_64-ntldd mingw-w64-x86_64-python mingw-w64-x86_64-python-numpy \
+     mingw-w64-x86_64-nasm mingw-w64-x86_64-pkgconf mingw-w64-x86_64-x264 \
+     mingw-w64-x86_64-x265 mingw-w64-x86_64-zlib
    ```
-3. FFmpeg 3.3.4 (el motor se prueba con esta versión; las DLL y
-   `ffmpeg.exe` del ZIP salen de aquí) y libui alpha4.1. Descarga y
-   comprueba el SHA256 de estos tres archivos (los valores están en
-   `release.yml`):
-   - `https://web.archive.org/https://ffmpeg.zeranoe.com/builds/win64/dev/ffmpeg-3.3.4-win64-dev.zip`
-   - `https://web.archive.org/https://ffmpeg.zeranoe.com/builds/win64/shared/ffmpeg-3.3.4-win64-shared.zip`
-   - `https://github.com/andlabs/libui/releases/download/alpha4.1/libui-alpha4.1-windows-amd64-mingw-static.zip`
-
-   y cópialos en MINGW64:
+3. FFmpeg (GPLv2, con x264 y x265; tarda unos 15 minutos) y libui alpha4.1.
+   El guion descarga el código de FFmpeg, comprueba su SHA256, lo compila y
+   lo instala en MINGW64; libui se descarga ya compilada (comprueba su
+   SHA256 con el valor de `release.yml`):
    ```shell
-   unzip -q ffmpeg-3.3.4-win64-dev.zip && unzip -q ffmpeg-3.3.4-win64-shared.zip
-   cp -r ffmpeg-3.3.4-win64-dev/include/* /mingw64/include/
-   cp -r ffmpeg-3.3.4-win64-dev/lib/*     /mingw64/lib/
-   cp -r ffmpeg-3.3.4-win64-shared/bin/*  /mingw64/bin/
+   ./scripts/compilar-ffmpeg.sh
+   curl -fLO https://github.com/andlabs/libui/releases/download/alpha4.1/libui-alpha4.1-windows-amd64-mingw-static.zip
    unzip -q -d libui libui-alpha4.1-windows-amd64-mingw-static.zip
    find libui -name '*.h' -exec cp {} /mingw64/include/ \;
    find libui -name '*.a' -exec cp {} /mingw64/lib/ \;
