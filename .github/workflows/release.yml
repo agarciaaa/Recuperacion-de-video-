@@ -44,7 +44,9 @@ jobs:
           msystem: MINGW64
           update: true
           cache: false
-          install: git zip unzip curl make
+          # diffutils: `cmp`, con el que empaquetar.sh comprueba que
+          # COPYING va intacto en el ZIP.
+          install: git zip unzip curl make diffutils
           # ntldd: lista las DLL que necesita cada .exe (empaquetar.sh).
           # python + numpy: se copian al ZIP en la carpeta python/.
           pacboy: gcc:p ntldd:p python:p python-numpy:p
