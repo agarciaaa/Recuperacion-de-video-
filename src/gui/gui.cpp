@@ -151,7 +151,11 @@ void Gui::init() {
 	memset(&o, 0, sizeof(uiInitOptions));
 	if (uiInit(&o) != NULL) abort();
 
-	window_ = newWindow("untrunc-gui", 820, 640, 0);
+	// Alto inicial pequeño: libui agranda la ventana hasta el mínimo que
+	// pide la pestaña más alta (~610 px de área interior). Con 640 la
+	// ventana medía 679 px y no cabía en 1920×1080 al 150 % (720 px
+	// lógicos menos la barra de tareas).
+	window_ = newWindow("untrunc-gui", 820, 480, 0);
 
 	// Preferencias guardadas (ai.conf) -> globales de la GUI, ANTES de
 	// construir las pestanas. Asi, p. ej., el ONNX activado sigue
@@ -1644,6 +1648,8 @@ void Gui::Assistant::updateList() {
 	if (list_danados_) {
 		std::string t;
 		for (auto& p : danados_) t += assistantBaseName(p) + "\n";
+		if (danados_.empty())
+			t = "(ninguno todavía: pulsa «Agregar vídeo dañado»; puedes elegir varios con Ctrl o Mayús)";
 		uiMultilineEntrySetText(list_danados_, t.c_str());
 	}
 	if (label_contadores_) {
@@ -2193,8 +2199,6 @@ uiControl* Gui::assistantTab() {
 
 	// Altura (2026-11-12): textos acortados y filas juntas para que la
 	// ventana quepa en pantallas de 768 px (antes 825 px de contenido).
-	auto label_intro = uiNewLabel("Nada sale de tu PC y el original no se toca: lo reparado va a la carpeta Reparados/.");
-	uiBoxAppend(v_box, uiControl(label_intro), 0);
 
 	// --- Paso 1: videos danados (lote) ---
 	auto group1 = newGroup("Paso 1 · Elige los vídeos dañados");
@@ -2206,13 +2210,12 @@ uiControl* Gui::assistantTab() {
 	uiBoxAppend(h_btns1, uiControl(btn_add), 0);
 	uiBoxAppend(h_btns1, uiControl(btn_del), 0);
 	uiBoxAppend(h_btns1, uiControl(btn_clear), 0);
-	uiBoxAppend(h_btns1, uiControl(uiNewLabel("Puedes elegir varios con Ctrl o Mayús.")), 0);
 	Assistant::list_danados_ = uiNewMultilineEntry();
 	uiMultilineEntrySetReadOnly(Assistant::list_danados_, 1);
 	Assistant::label_contadores_ = uiNewLabel("Vídeos dañados: 0");
+	uiBoxAppend(h_btns1, uiControl(Assistant::label_contadores_), 0);
 	uiBoxAppend(v1, uiControl(h_btns1), 0);
 	uiBoxAppend(v1, uiControl(Assistant::list_danados_), 1);
-	uiBoxAppend(v1, uiControl(Assistant::label_contadores_), 0);
 	uiGroupSetChild(group1, uiControl(v1));
 	// Punto 7 (reparaciones 2026-11-07): el grupo del Paso 1 es
 	// stretchy (1). Antes iba con 0: libui le daba su altura
@@ -2230,7 +2233,12 @@ uiControl* Gui::assistantTab() {
 	Assistant::combo_modo_ = uiNewCombobox();
 	uiComboboxAppend(Assistant::combo_modo_, "Tengo un vídeo de referencia (sano, del mismo móvil o cámara)");
 	uiComboboxAppend(Assistant::combo_modo_, "No tengo referencia: intentar sin ella (perfil / modelo entrenado / rescate)");
-	uiBoxAppend(v2, uiControl(Assistant::combo_modo_), 0);
+	// El rescate va en la misma fila que el modo (altura: escalado 150 %).
+	auto h_modo = newHorizontalBox();
+	uiBoxAppend(h_modo, uiControl(Assistant::combo_modo_), 1);
+	Assistant::chk_forzar_ = uiNewCheckbox("Rescate si no parece MP4 (sin ftyp/moov/mdat)");
+	uiBoxAppend(h_modo, uiControl(Assistant::chk_forzar_), 0);
+	uiBoxAppend(v2, uiControl(h_modo), 0);
 	auto h_ref = newHorizontalBox();
 	Assistant::btn_ref_examinar_ = newButton("Vídeo de referencia (sano)");
 	Assistant::entry_ref_ = newEntry();
@@ -2273,8 +2281,6 @@ uiControl* Gui::assistantTab() {
 	// y se intenta el rescate sin referencia (perfil/ONNX). Si el
 	// rescate tampoco encuentra vídeo, el informe lo dice claro
 	// y NO se deja un archivo vacío engañoso.
-	Assistant::chk_forzar_ = uiNewCheckbox("Intentar de todos modos si no parece MP4 (rescate de archivos sin ftyp/moov/mdat)");
-	uiBoxAppend(v2, uiControl(Assistant::chk_forzar_), 0);
 	uiGroupSetChild(group2, uiControl(v2));
 	uiBoxAppend(v_box, uiControl(group2), 0);
 
@@ -2283,7 +2289,7 @@ uiControl* Gui::assistantTab() {
 	auto v3 = newVerticalBox();
 	auto h_rep = newHorizontalBox();
 	Assistant::btn_reparar_todo_ = newButton("Reparar todo");
-	Assistant::label_estado_ = uiNewLabel("Sin empezar. Completa los pasos 1 y 2 y pulsa «Reparar todo».");
+	Assistant::label_estado_ = uiNewLabel("Sin empezar. Nada sale de tu PC y el original no se toca: lo reparado va a Reparados/.");
 	uiBoxAppend(h_rep, uiControl(Assistant::btn_reparar_todo_), 0);
 	uiBoxAppend(h_rep, uiControl(Assistant::label_estado_), 1);
 	Assistant::progressbar_ = uiNewProgressBar();
