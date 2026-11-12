@@ -206,6 +206,90 @@ cp -v "$SOURCE_DIR/README.md" "$SOURCE_DIR/README-ESPANOL.md" \
       "$SOURCE_DIR/LEEME-Primeros-pasos.txt" "$STAGE/"
 cp -v "$SOURCE_DIR/COPYING" "$STAGE/COPYING"
 
+# Licencias de todo lo que el ZIP trae de terceros (FFmpeg, libui, y los
+# paquetes de MSYS2: Python, numpy, OpenBLAS, runtime de GCC...). Repartir
+# esos binarios obliga a incluir sus licencias y decir dónde está su código.
+if [ "$PLATAFORMA" = windows ]; then
+	echo "== Licencias de terceros =="
+	LIC="$STAGE/LICENCIAS"
+	mkdir -p "$LIC/ffmpeg" "$LIC/msys2"
+	# FFmpeg es la compilación de Zeranoe (no es de MSYS2): su LICENSE.txt y
+	# su README.txt (configuración y bibliotecas incluidas) se guardan al
+	# instalarla en $MINGW_PREFIX/share/licenses/ffmpeg-zeranoe/.
+	FF_LIC="$MINGW_PREFIX/share/licenses/ffmpeg-zeranoe"
+	for f in LICENSE.txt README.txt; do
+		[ -f "$FF_LIC/$f" ] || { echo "ERROR: falta $FF_LIC/$f (cópialo del ZIP de FFmpeg de Zeranoe)." >&2; exit 1; }
+		cp "$FF_LIC/$f" "$LIC/ffmpeg/$f"
+	done
+	cp "$SOURCE_DIR/docs/licencias/libui-LICENSE.txt" "$LIC/libui-LICENSE.txt"
+
+	# Paquete de MSYS2 dueño de cada binario incluido (FFmpeg se salta:
+	# pacman podría atribuirlo a otro ffmpeg instalado antes).
+	declare -A PAQ_MSYS
+	BIN_LISTA=$( { find "$STAGE" -maxdepth 1 -iname '*.dll'; find "$STAGE/python/bin" -iname '*.dll' -o -iname '*.exe'; } )
+	while read -r f; do
+		[ -n "$f" ] || continue
+		b=$(basename "$f"); low=${b,,}
+		case "$low" in ffmpeg.exe|ffprobe.exe|av*.dll|sw*.dll|postproc*.dll) continue;; esac
+		[ -f "$MINGW_PREFIX/bin/$b" ] || continue
+		p=$(pacman -Qqo "$MINGW_PREFIX/bin/$b" 2>/dev/null) || continue
+		PAQ_MSYS[$p]=1
+	done <<< "$BIN_LISTA"
+	# Python (biblioteca estándar y .pyd) y numpy.
+	for f in "$MINGW_PREFIX/bin/python.exe" "$PY_LIB/site-packages/numpy/__init__.py"; do
+		p=$(pacman -Qqo "$f" 2>/dev/null) && PAQ_MSYS[$p]=1
+	done
+
+	{
+		echo "LICENCIAS DE LOS COMPONENTES INCLUIDOS EN ESTE ZIP"
+		echo "=================================================="
+		echo
+		echo "untrunc-mejorado se distribuye bajo la GNU GPL versión 2 (archivo COPYING)."
+		echo "Su código fuente: https://github.com/agarciaaa/Recuperacion-de-video-"
+		echo
+		echo "Para que el programa funcione sin instalar nada, el ZIP trae además"
+		echo "programas de terceros, cada uno con su propia licencia (en esta carpeta):"
+		echo
+		echo "1) FFmpeg 3.3.4 — ffmpeg.exe, ffprobe.exe y las DLL AV*, SW*, POSTPROC*."
+		echo "   Compilación de Zeranoe (ffmpeg.zeranoe.com, ya cerrado), con --enable-gpl"
+		echo "   y --enable-version3: licencia GNU GPL versión 3 (ffmpeg/LICENSE.txt)."
+		echo "   Configuración exacta y bibliotecas incluidas (x264, x265, ...) con sus"
+		echo "   versiones y webs: ffmpeg/README.txt."
+		echo "   Código fuente de FFmpeg 3.3.4: https://ffmpeg.org/releases/ffmpeg-3.3.4.tar.xz"
+		echo "   Copia del paquete original: https://web.archive.org/https://ffmpeg.zeranoe.com/builds/win64/shared/ffmpeg-3.3.4-win64-shared.zip"
+		echo
+		echo "2) libui alpha4.1 — interfaz gráfica, enlazada dentro de untrunc-gui.exe."
+		echo "   Licencia MIT (libui-LICENSE.txt). Código: https://github.com/andlabs/libui/tree/alpha4.1"
+		echo
+		echo "3) Paquetes de MSYS2 (Python, numpy, OpenBLAS, runtime de GCC y otras DLL)."
+		echo "   Licencia de cada uno en msys2/<paquete>/. Código fuente y receta de"
+		echo "   compilación: https://packages.msys2.org/package/<paquete> y"
+		echo "   https://github.com/msys2/MINGW-packages ; archivos de código fuente:"
+		echo "   https://repo.msys2.org/mingw/sources/"
+		echo
+		printf '   %-40s %-22s %s\n' "PAQUETE" "VERSIÓN" "LICENCIA"
+		for p in $(printf '%s\n' "${!PAQ_MSYS[@]}" | sort); do
+			ver=$(pacman -Q "$p" | awk '{print $2}')
+			lic=$(LC_ALL=C pacman -Qi "$p" | sed -n 's/^Licenses *: *//p')
+			printf '   %-40s %-22s %s\n' "$p" "$ver" "$lic"
+			corto=${p#mingw-w64-x86_64-}
+			while read -r lf; do
+				[ -f "$lf" ] || continue
+				mkdir -p "$LIC/msys2/$corto"
+				cp "$lf" "$LIC/msys2/$corto/"
+			done < <(pacman -Qlq "$p" | grep '/share/licenses/' | grep -v '/$' || true)
+		done
+		echo
+		echo "Si algún enlace deja de funcionar, abre una incidencia en el repositorio"
+		echo "y se indicará otra forma de conseguir el código fuente."
+		echo
+		echo "English: this ZIP bundles FFmpeg 3.3.4 (Zeranoe build, GPLv3), libui (MIT)"
+		echo "and MSYS2 packages (Python, numpy and their DLLs). Their licenses are in this"
+		echo "folder; source code locations are listed above."
+	} > "$LIC/LEEME-LICENCIAS.txt"
+	echo "Licencias: $(ls "$LIC/msys2" | wc -l) paquetes de MSYS2 + FFmpeg + libui"
+fi
+
 # --- 3. Verificación del paquete (falla si algo no cuadra) ----------------
 echo "== Verificación del paquete =="
 
@@ -215,7 +299,9 @@ if [ "$PLATAFORMA" = windows ]; then
 		LEEME-Primeros-pasos.txt profiles/profiles.json \
 		models/onnx_base/modelo.onnx models/onnx_base/pesos.json \
 		models/onnx_base/model_info.json tools/train_onnx.py \
-		ffmpeg.exe ffprobe.exe python/bin/python.exe; do
+		ffmpeg.exe ffprobe.exe python/bin/python.exe \
+		LICENCIAS/LEEME-LICENCIAS.txt LICENCIAS/ffmpeg/LICENSE.txt \
+		LICENCIAS/libui-LICENSE.txt; do
 		[ -f "$STAGE/$f" ] || { echo "ERROR: falta en el paquete: $f" >&2; exit 1; }
 	done
 	# ffmpeg y Python incluidos deben arrancar (-B: sin escribir .pyc).

@@ -14,6 +14,7 @@
 #include <windows.h>
 #include <commdlg.h>
 #include <cderr.h>  // FNERR_BUFFERTOOSMALL (WIN32_LEAN_AND_MEAN lo excluye)
+#include <ui_windows.h>  // uiWindowsControlMinimumSize (diagnóstico de tamaño)
 #endif
 
 #include <string.h>  // memset
@@ -214,10 +215,29 @@ void Gui::build() {
     };
 
 	auto tabs = newTab();
-	for (uint i = 0; pages[i].name != NULL; i++)
-		uiTabAppend(tabs, pages[i].name, (*(pages[i].f))());
+	std::vector<uiControl*> ctrls;
+	for (uint i = 0; pages[i].name != NULL; i++) {
+		ctrls.push_back((*(pages[i].f))());
+		uiTabAppend(tabs, pages[i].name, ctrls.back());
+	}
 
 	uiWindowSetChild(window_, uiControl(tabs));
+
+#ifdef _WIN32
+	// Diagnóstico para desarrollo: con UNTRUNC_GUI_MEDIR=<archivo> se
+	// escribe el tamaño mínimo (px) de cada pestaña. La ventana mide lo
+	// que la pestaña más grande, y debe caber en pantallas de 1366×768.
+	if (const char* f = getenv("UNTRUNC_GUI_MEDIR")) {
+		if (FILE* out = fopen(f, "w")) {
+			for (size_t i = 0; i < ctrls.size(); i++) {
+				int w = 0, h = 0;
+				uiWindowsControlMinimumSize(uiWindowsControl(ctrls[i]), &w, &h);
+				fprintf(out, "%-12s %5d x %5d\n", pages[i].name, w, h);
+			}
+			fclose(out);
+		}
+	}
+#endif
 }
 
 void Gui::openFile(uiButton* b, void* data) {
@@ -664,7 +684,13 @@ uiControl* Gui::aiTab() {
 	uiBoxAppend(v_local, uiControl(label_local_info), 0);
 	uiBoxAppend(v_local, uiControl(h_local_profile), 0);
 	uiGroupSetChild(group_local, uiControl(v_local));
-	uiBoxAppend(v_box, uiControl(group_local), 0);
+	// Altura (2026-11-12): las tres secciones iban una debajo de otra
+	// (707 px de contenido) y la ventana no cabía en pantallas de 768 px.
+	// Ahora cada una es una sub-pestaña; la nota general va con «Local».
+	auto sub_ia = newTab();
+	auto pag_local = newVerticalBox();
+	uiTabAppend(sub_ia, "Local (recomendada)", uiControl(pag_local));
+	uiBoxAppend(pag_local, uiControl(group_local), 0);
 
 	// --- Bloque 2: LM Studio — Qwen local (localhost:1234) ---
 	auto group_lm = newGroup("2 · LM Studio — Qwen local (avanzado, opcional)");
@@ -696,7 +722,7 @@ uiControl* Gui::aiTab() {
 	uiBoxAppend(v_lm, uiControl(h_lm_timeout), 0);
 	uiBoxAppend(v_lm, uiControl(Ai::btn_lm_test_), 0);
 	uiGroupSetChild(group_lm, uiControl(v_lm));
-	uiBoxAppend(v_box, uiControl(group_lm), 0);
+	uiTabAppend(sub_ia, "LM Studio (avanzado)", uiControl(group_lm));
 
 	// --- Bloque 3: IA externa (por API, opt-in) ---
 	auto group_ext = newGroup("3 · IA externa — por API (opt-in)");
@@ -734,10 +760,11 @@ uiControl* Gui::aiTab() {
 	uiBoxAppend(v_ext, uiControl(h_ext_timeout), 0);
 	uiBoxAppend(v_ext, uiControl(Ai::btn_ext_test_), 0);
 	uiGroupSetChild(group_ext, uiControl(v_ext));
-	uiBoxAppend(v_box, uiControl(group_ext), 0);
+	uiTabAppend(sub_ia, "IA externa", uiControl(group_ext));
 
 	auto label_ai_note = newTextLines("La IA nunca genera vídeo: solo infiere estructura (códec, perfil, modo) y explica en español. Si todas están apagadas, se usa solo el modo clásico con referencia.");
-	uiBoxAppend(v_box, uiControl(label_ai_note), 0);
+	uiBoxAppend(pag_local, uiControl(label_ai_note), 0);
+	uiBoxAppend(v_box, uiControl(sub_ia), 1);
 
 	// --- Valores iniciales: la configuracion efectiva (ai.conf y
 	// variables de entorno, via loadAiConfig), no solo los valores
@@ -1051,7 +1078,14 @@ std::string Gui::Train::baseSummary() {
 
 void Gui::Train::updateBaseLabel() {
 	if (!label_base_) return;
-	uiLabelSetText(label_base_, baseSummary().c_str());
+	// Solo la primera línea (totales): el resumen trae además la lista de
+	// archivos, una por línea, y en Windows libui calcula el ancho de la
+	// etiqueta con TODO el texto en una línea, así que la ventana se
+	// ensanchaba hasta ~1900 px. La lista completa está en «Ver base».
+	std::string s = baseSummary();
+	size_t nl = s.find('\n');
+	if (nl != std::string::npos) s.resize(nl);
+	uiLabelSetText(label_base_, s.c_str());
 }
 
 void Gui::Train::refresh() {
@@ -1234,7 +1268,10 @@ uiControl* Gui::trainTab() {
 	// dentro de cada uno, las listas y la ventana de detalles ya
 	// eran stretchy (1). group_model sigue fijo (0): solo tiene
 	// etiquetas y botones. Sin funciones libui nuevas.
-	uiBoxAppend(v_box, uiControl(group_listas), 1);
+	// Altura (2026-11-12): los tres bloques apilados sumaban 910 px y la
+	// ventana no cabía en 768 px. Ahora cada bloque es una sub-pestaña.
+	auto sub_train = newTab();
+	uiTabAppend(sub_train, "1 · Vídeos", uiControl(group_listas));
 
 	// --- Bloque 2: dataset y entrenamiento ---
 	auto group_train = newGroup("2 · Dataset y entrenamiento (en esta PC)");
@@ -1300,7 +1337,7 @@ uiControl* Gui::trainTab() {
 	// Punto 7: stretchy (ver group_listas arriba): así la ventana
 	// de detalles (ya stretchy dentro de v_train) crece con la
 	// ventana y se ven varias líneas de la salida del script.
-	uiBoxAppend(v_box, uiControl(group_train), 1);
+	uiTabAppend(sub_train, "2 · Entrenar", uiControl(group_train));
 
 	// --- Bloque 3: modelo actual ---
 	auto group_model = newGroup("3 · Modelo actual");
@@ -1324,7 +1361,8 @@ uiControl* Gui::trainTab() {
 	uiBoxAppend(v_model, uiControl(label_model_info4), 0);
 	uiBoxAppend(v_model, uiControl(label_model_info5), 0);
 	uiGroupSetChild(group_model, uiControl(v_model));
-	uiBoxAppend(v_box, uiControl(group_model), 0);
+	uiTabAppend(sub_train, "3 · Modelo", uiControl(group_model));
+	uiBoxAppend(v_box, uiControl(sub_train), 1);
 
 	// --- Cableado ---
 	// Las listas empiezan vacías en cada sesión: no se cargan de
@@ -2153,7 +2191,9 @@ void Gui::Assistant::openRepaired(uiButton* button, void* data) {
 uiControl* Gui::assistantTab() {
 	auto v_box = newVerticalBox();
 
-	auto label_intro = newTextLines("Repara tus vídeos en 3 pasos. Nada sale de tu PC. El original nunca se modifica: las reparaciones van a la carpeta Reparados/.");
+	// Altura (2026-11-12): textos acortados y filas juntas para que la
+	// ventana quepa en pantallas de 768 px (antes 825 px de contenido).
+	auto label_intro = uiNewLabel("Nada sale de tu PC y el original no se toca: lo reparado va a la carpeta Reparados/.");
 	uiBoxAppend(v_box, uiControl(label_intro), 0);
 
 	// --- Paso 1: videos danados (lote) ---
@@ -2166,14 +2206,13 @@ uiControl* Gui::assistantTab() {
 	uiBoxAppend(h_btns1, uiControl(btn_add), 0);
 	uiBoxAppend(h_btns1, uiControl(btn_del), 0);
 	uiBoxAppend(h_btns1, uiControl(btn_clear), 0);
+	uiBoxAppend(h_btns1, uiControl(uiNewLabel("Puedes elegir varios con Ctrl o Mayús.")), 0);
 	Assistant::list_danados_ = uiNewMultilineEntry();
 	uiMultilineEntrySetReadOnly(Assistant::list_danados_, 1);
 	Assistant::label_contadores_ = uiNewLabel("Vídeos dañados: 0");
-	auto label_p1 = newTextLines("Puedes agregar varios a la vez: en el diálogo elige uno o varios vídeos con Ctrl o Mayús. Se reparan todos con la misma referencia del Paso 2.");
 	uiBoxAppend(v1, uiControl(h_btns1), 0);
 	uiBoxAppend(v1, uiControl(Assistant::list_danados_), 1);
 	uiBoxAppend(v1, uiControl(Assistant::label_contadores_), 0);
-	uiBoxAppend(v1, uiControl(label_p1), 0);
 	uiGroupSetChild(group1, uiControl(v1));
 	// Punto 7 (reparaciones 2026-11-07): el grupo del Paso 1 es
 	// stretchy (1). Antes iba con 0: libui le daba su altura
@@ -2198,21 +2237,17 @@ uiControl* Gui::assistantTab() {
 	uiButtonOnClicked(Assistant::btn_ref_examinar_, openFile, Assistant::entry_ref_);
 	uiBoxAppend(h_ref, uiControl(Assistant::btn_ref_examinar_), 0);
 	uiBoxAppend(h_ref, uiControl(Assistant::entry_ref_), 1);
-	uiBoxAppend(v2, uiControl(h_ref), 0);
 	// Guardar la referencia como plantilla de camara (solo cabecera).
 	auto h_tpl = newHorizontalBox();
-	g_asist_btn_plantilla = newButton("Guardar como plantilla de esta cámara");
+	g_asist_btn_plantilla = newButton("Guardar plantilla de esta cámara (solo la cabecera, unos KB)");
 	auto label_tpl = uiNewLabel("Nombre (opcional):");
 	g_asist_nombre_plantilla = newEntry();
 	uiBoxAppend(h_tpl, uiControl(g_asist_btn_plantilla), 0);
 	uiBoxAppend(h_tpl, uiControl(label_tpl), 0);
 	uiBoxAppend(h_tpl, uiControl(g_asist_nombre_plantilla), 1);
-	uiBoxAppend(v2, uiControl(h_tpl), 0);
-	auto label_tpl_info = newTextLines("Guarda solo la cabecera de la referencia (unos KB, sin imagen ni sonido). Así podrás reparar vídeos de esta cámara aunque ya no tengas un vídeo sano.");
-	uiBoxAppend(v2, uiControl(label_tpl_info), 0);
 	uiButtonOnClicked(g_asist_btn_plantilla, Gui::Assistant::guardarPlantilla, nullptr);
-	auto h_perfil = newHorizontalBox();
-	auto label_perfil = uiNewLabel("      Perfil de cámara o plantilla (solo sin referencia)");
+	auto h_perfil = h_ref;
+	auto label_perfil = uiNewLabel("Sin referencia:");
 	Assistant::combo_perfil_ = uiNewCombobox();
 	uiComboboxAppend(Assistant::combo_perfil_, "Automático (recomendado)");
 	for (int i = 0; i < kAiLocalProfilesCount; i++)
@@ -2221,17 +2256,14 @@ uiControl* Gui::assistantTab() {
 	for (const auto& p : plantillas::listarPlantillas(g_exe_argv0))
 		Assistant::anadirPlantilla(p.id, p.resumenEs());
 	uiBoxAppend(h_perfil, uiControl(label_perfil), 0);
-	uiBoxAppend(h_perfil, uiControl(Assistant::combo_perfil_), 1);
-	uiBoxAppend(v2, uiControl(h_perfil), 0);
-	auto label_convert_info = uiNewLabel("Si un vídeo es MKV, AVI, WMV, WebM, FLV, MPG o MTS, primero hay que convertirlo a MP4 (sin tocar el original).");
+	uiBoxAppend(h_perfil, uiControl(Assistant::combo_perfil_), 0);
+	uiBoxAppend(v2, uiControl(h_ref), 0);
+	uiBoxAppend(v2, uiControl(h_tpl), 0);
 	Assistant::label_formatos_ = uiNewLabel("Formatos: 0 directos (MP4, MOV, M4V, 3GP)  ·  0 para convertir a MP4  ·  0 desconocidos (no se pueden reparar)");
 	auto h_convert = newHorizontalBox();
-	Assistant::btn_convertir_ = newButton("Convertir a MP4");
-	auto label_convert = uiNewLabel("Sin re-codificar si se puede; si no, re-codifica a H.264 + AAC y lo avisa.");
+	Assistant::btn_convertir_ = newButton("Convertir MKV, AVI... a MP4");
 	uiBoxAppend(h_convert, uiControl(Assistant::btn_convertir_), 0);
-	uiBoxAppend(h_convert, uiControl(label_convert), 1);
-	uiBoxAppend(v2, uiControl(label_convert_info), 0);
-	uiBoxAppend(v2, uiControl(Assistant::label_formatos_), 0);
+	uiBoxAppend(h_convert, uiControl(Assistant::label_formatos_), 1);
 	uiBoxAppend(v2, uiControl(h_convert), 0);
 	// Punto 4 (reparaciones 2026-11-07): "Intentar de todos modos".
 	// El pre-vuelo NO se elimina: si un dañado no parece MP4/MOV
@@ -2241,10 +2273,8 @@ uiControl* Gui::assistantTab() {
 	// y se intenta el rescate sin referencia (perfil/ONNX). Si el
 	// rescate tampoco encuentra vídeo, el informe lo dice claro
 	// y NO se deja un archivo vacío engañoso.
-	Assistant::chk_forzar_ = uiNewCheckbox("Intentar de todos modos si el archivo no parece MP4 (rescate)");
-	auto label_forzar = uiNewLabel("Solo para archivos sin ftyp/moov/mdat: salta el pre-vuelo y prueba el rescate.");
+	Assistant::chk_forzar_ = uiNewCheckbox("Intentar de todos modos si no parece MP4 (rescate de archivos sin ftyp/moov/mdat)");
 	uiBoxAppend(v2, uiControl(Assistant::chk_forzar_), 0);
-	uiBoxAppend(v2, uiControl(label_forzar), 0);
 	uiGroupSetChild(group2, uiControl(v2));
 	uiBoxAppend(v_box, uiControl(group2), 0);
 
@@ -2259,7 +2289,6 @@ uiControl* Gui::assistantTab() {
 	Assistant::progressbar_ = uiNewProgressBar();
 	Assistant::text_informe_ = uiNewMultilineEntry();
 	uiMultilineEntrySetReadOnly(Assistant::text_informe_, 1);
-	auto label_prev_title = uiNewLabel("Vista previa (del vídeo reparado seleccionado):");
 	auto h_prev_nav = newHorizontalBox();
 	Assistant::btn_preview_prev_ = newButton("‹ Anterior");
 	Assistant::label_preview_target_ = uiNewLabel("Vista previa: todavía no hay ningún vídeo reparado en este lote.");
@@ -2274,14 +2303,13 @@ uiControl* Gui::assistantTab() {
 	uiBoxAppend(h_prev_btns, uiControl(Assistant::btn_preview_5s_), 0);
 	uiBoxAppend(h_prev_btns, uiControl(Assistant::btn_preview_foto_), 0);
 	uiBoxAppend(h_prev_btns, uiControl(Assistant::btn_preview_abrir_), 0);
-	Assistant::label_preview_ = uiNewLabel("La miniatura es el primer fotograma del vídeo reparado (se abre con tu visor de imágenes).");
+	Assistant::label_preview_ = uiNewLabel("La miniatura se abre con tu visor de imágenes.");
+	uiBoxAppend(h_prev_btns, uiControl(Assistant::label_preview_), 1);
 	uiBoxAppend(v3, uiControl(h_rep), 0);
 	uiBoxAppend(v3, uiControl(Assistant::progressbar_), 0);
 	uiBoxAppend(v3, uiControl(Assistant::text_informe_), 1);
-	uiBoxAppend(v3, uiControl(label_prev_title), 0);
 	uiBoxAppend(v3, uiControl(h_prev_nav), 0);
 	uiBoxAppend(v3, uiControl(h_prev_btns), 0);
-	uiBoxAppend(v3, uiControl(Assistant::label_preview_), 0);
 	uiGroupSetChild(group3, uiControl(v3));
 	// Punto 7: el grupo del Paso 3 también es stretchy (1), como
 	// el del Paso 1: el informe del lote (ya stretchy (1) dentro

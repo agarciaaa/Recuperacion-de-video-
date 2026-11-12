@@ -98,7 +98,9 @@ colaboradores; su README original está en
 [docs/README-untrunc-original.md](docs/README-untrunc-original.md).
 
 Licencia **GNU GPL-2.0** (ver [COPYING](COPYING)). El ZIP de Windows incluye
-FFmpeg (GPL) y Python con numpy (licencias PSF y BSD).
+FFmpeg 3.3.4 (GPL-3.0), libui (MIT) y Python con numpy (licencias PSF y BSD),
+entre otros: sus licencias y dónde está su código fuente van en la carpeta
+`LICENCIAS\` del ZIP.
 
 ---
 

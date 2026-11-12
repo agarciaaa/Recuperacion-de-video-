@@ -77,6 +77,11 @@ jobs:
           unzip -q ffmpeg-shared.zip
           # DLL + ffmpeg.exe + ffprobe.exe (empaquetar.sh los toma de aquí).
           cp -r ffmpeg-${FF_VER}-win64-shared/bin/*  "${sysroot}/bin/"
+          # Licencia y README (configuración y bibliotecas) de esta compilación:
+          # empaquetar.sh los mete en LICENCIAS/ffmpeg/ del ZIP.
+          mkdir -p "${sysroot}/share/licenses/ffmpeg-zeranoe"
+          cp ffmpeg-${FF_VER}-win64-shared/LICENSE.txt ffmpeg-${FF_VER}-win64-shared/README.txt \
+             "${sysroot}/share/licenses/ffmpeg-zeranoe/"
           unzip -q -d libui-static libui-static.zip
           find libui-static -name '*.h' -exec cp {} "${sysroot}/include/" \;
           find libui-static -name '*.a' -exec cp {} "${sysroot}/lib/" \;

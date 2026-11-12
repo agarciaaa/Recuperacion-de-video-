@@ -23,6 +23,8 @@ Licencia: GNU GPL-2.0 (ver COPYING). Gratis y de código abierto.
 - README-ESPANOL.md -> guía completa en español. README.md -> portada
   del proyecto (con un resumen en inglés).
 - COPYING -> licencia GPL-2.0.
+- LICENCIAS\ -> licencias de FFmpeg, Python, numpy y demás componentes
+  incluidos, y dónde está su código fuente (LEEME-LICENCIAS.txt).
 
 CÓMO ABRIRLO (ASISTENTE EN 3 PASOS)
 ------------------------------------
