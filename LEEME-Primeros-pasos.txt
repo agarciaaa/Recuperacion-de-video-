@@ -20,7 +20,8 @@ Licencia: GNU GPL-2.0 (ver COPYING). Gratis y de código abierto.
   DJI, Sony, Canon, OBS y genéricos) para reparar sin referencia.
 - models/onnx_base/ -> modelo base pequeño (77 KB) del motor ONNX.
 - tools/train_onnx.py -> script para entrenar ese motor con tus vídeos.
-- README-ESPANOL.md -> guía en español. README.md -> documento original.
+- README-ESPANOL.md -> guía completa en español. README.md -> portada
+  del proyecto (con un resumen en inglés).
 - COPYING -> licencia GPL-2.0.
 
 CÓMO ABRIRLO (ASISTENTE EN 3 PASOS)

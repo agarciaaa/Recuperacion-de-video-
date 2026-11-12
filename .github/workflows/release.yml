@@ -1,40 +1,35 @@
 name: release
 
-# Compila los .exe de Windows en cada push a main (quedan como
-# artefactos descargables del run). La release publica "latest"
-# SOLO se crea al lanzar el workflow a mano (Actions > release >
-# Run workflow), para no publicar una version en cada commit.
+# Arma el ZIP portable de Windows con empaquetar.sh: untrunc.exe +
+# untrunc-gui.exe + DLL de FFmpeg + ffmpeg.exe/ffprobe.exe + Python 3
+# con numpy (carpeta python/). Es el mismo ZIP que se prueba en local:
+# se descomprime y se abre con doble clic, sin instalar nada.
+#
+# - Cada push a main: compila, pasa los tests y deja el ZIP como
+#   artefacto del run (Actions > release > el run > Artifacts).
+# - Al subir una etiqueta de versión (por ejemplo v1.0.0): además crea
+#   una release en BORRADOR con el ZIP y su SHA256. El borrador no es
+#   público hasta que alguien lo revisa y pulsa "Publish release".
+# - A mano (Actions > release > Run workflow): igual que un push.
 on:
   push:
     branches: [main]
+    tags: ['v*']
   workflow_dispatch:
 
 jobs:
-  build-windows:
+  windows:
     runs-on: windows-latest
+    timeout-minutes: 60
     env:
+      # FFmpeg 3.3.4 de Zeranoe (archivado en web.archive.org): el mismo
+      # con el que se compila y prueba en local. Trae x264/x265 dentro de
+      # sus DLL y también ffmpeg.exe/ffprobe.exe.
       FF_VER: "3.3.4"
       LIBUI_VER: "alpha4.1"
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - job: "32"
-            untr_dest: untrunc_x32
-            msystem: MINGW32
-            arch: win32
-            arch_ui: "386"
-            sha_ffmpeg_dev: d5d48e0c24e4579230eb1a45e3589d27aceafd5391b044f3e6a24aa5d59c69eb
-            sha_ffmpeg_shared: 40bb6ba68d8d1f586a8a69f4bda47f7b8bae1598dfcc6b90123be63e66fd7400
-            sha_libui: e3d2e9a1862fa603d5d7b9d3ccb0692ba79f861bbe70030da32329d23e6fdbef
-          - job: "64"
-            untr_dest: untrunc_x64
-            msystem: MINGW64
-            arch: win64
-            arch_ui: amd64
-            sha_ffmpeg_dev: 9226dfe7f386d339f529bc2ba1be1022a44c829aeeadd2d905593d176c696feb
-            sha_ffmpeg_shared: 4b2890ecf26130d2f11e5d9e25ccd008cbe8cbff633504729de24bf50f1e2c57
-            sha_libui: f0d262959fd96ea5caeef188b56680f7f638e7b3d8a68575ff58e4000ae75109
+      SHA_FFMPEG_DEV: 9226dfe7f386d339f529bc2ba1be1022a44c829aeeadd2d905593d176c696feb
+      SHA_FFMPEG_SHARED: 4b2890ecf26130d2f11e5d9e25ccd008cbe8cbff633504729de24bf50f1e2c57
+      SHA_LIBUI: f0d262959fd96ea5caeef188b56680f7f638e7b3d8a68575ff58e4000ae75109
 
     defaults:
       run:
@@ -43,118 +38,115 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up MSYS2 / MinGW
+      - name: MSYS2 (MINGW64) con gcc, ntldd, Python y numpy
         uses: msys2/setup-msys2@v2
         with:
-          msystem: ${{ matrix.msystem }}
-          # Refresh package metadata and avoid restoring stale package downloads.
+          msystem: MINGW64
           update: true
           cache: false
-          # Use MSYS make for both architectures; MinGW32 no longer packages make.
           install: git zip unzip curl make
-          # pacboy: ':p' auto-prefixes with the active MSYSTEM (mingw-w64-i686-* / -x86_64-*)
-          # ntldd: arch-aware PE dependency lister (ldd mis-resolves 32-bit exes)
-          pacboy: gcc:p ntldd:p
+          # ntldd: lista las DLL que necesita cada .exe (empaquetar.sh).
+          # python + numpy: se copian al ZIP en la carpeta python/.
+          pacboy: gcc:p ntldd:p python:p python-numpy:p
 
-      - name: Download external artifacts
+      - name: Descargar FFmpeg y libui
         run: |
-          ff_base="https://web.archive.org/https://ffmpeg.zeranoe.com/builds"
+          ff_base="https://web.archive.org/https://ffmpeg.zeranoe.com/builds/win64"
           libui_base="https://github.com/andlabs/libui/releases/download/${LIBUI_VER}"
+          curl -fsSL --retry 5 --retry-delay 10 "${ff_base}/dev/ffmpeg-${FF_VER}-win64-dev.zip"       -o ffmpeg-dev.zip
+          curl -fsSL --retry 5 --retry-delay 10 "${ff_base}/shared/ffmpeg-${FF_VER}-win64-shared.zip" -o ffmpeg-shared.zip
+          curl -fsSL --retry 5 --retry-delay 10 "${libui_base}/libui-${LIBUI_VER}-windows-amd64-mingw-static.zip" -o libui-static.zip
 
-          curl -fsSL "${ff_base}/${{ matrix.arch }}/dev/ffmpeg-${FF_VER}-${{ matrix.arch }}-dev.zip"       -o ffmpeg-dev.zip
-          curl -fsSL "${ff_base}/${{ matrix.arch }}/shared/ffmpeg-${FF_VER}-${{ matrix.arch }}-shared.zip" -o ffmpeg-shared.zip
-          curl -fsSL "${libui_base}/libui-${LIBUI_VER}-windows-${{ matrix.arch_ui }}-mingw-static.zip"     -o libui-static.zip
-
-      - name: Verify checksums (fail-fast)
+      - name: Comprobar SHA256 (si no cuadra, se para)
         run: |
           cat > SHA256SUMS <<EOF
-          ${{ matrix.sha_ffmpeg_dev }}  ffmpeg-dev.zip
-          ${{ matrix.sha_ffmpeg_shared }}  ffmpeg-shared.zip
-          ${{ matrix.sha_libui }}  libui-static.zip
+          ${SHA_FFMPEG_DEV}  ffmpeg-dev.zip
+          ${SHA_FFMPEG_SHARED}  ffmpeg-shared.zip
+          ${SHA_LIBUI}  libui-static.zip
           EOF
           sha256sum -c SHA256SUMS
 
-      - name: Unpack into the MinGW sysroot
+      - name: Instalar FFmpeg y libui en MINGW64
         run: |
-          sysroot="$MINGW_PREFIX"   # /mingw64 or /mingw32, exported by MSYS2
-
+          sysroot="$MINGW_PREFIX"
           unzip -q ffmpeg-dev.zip
-          cp -r ffmpeg-${FF_VER}-${{ matrix.arch }}-dev/include/* "${sysroot}/include/"
-          cp -r ffmpeg-${FF_VER}-${{ matrix.arch }}-dev/lib/*     "${sysroot}/lib/"
-
+          cp -r ffmpeg-${FF_VER}-win64-dev/include/* "${sysroot}/include/"
+          cp -r ffmpeg-${FF_VER}-win64-dev/lib/*     "${sysroot}/lib/"
           unzip -q ffmpeg-shared.zip
-          cp -r ffmpeg-${FF_VER}-${{ matrix.arch }}-shared/bin/*  "${sysroot}/bin/"
-
+          # DLL + ffmpeg.exe + ffprobe.exe (empaquetar.sh los toma de aquí).
+          cp -r ffmpeg-${FF_VER}-win64-shared/bin/*  "${sysroot}/bin/"
           unzip -q -d libui-static libui-static.zip
           find libui-static -name '*.h' -exec cp {} "${sysroot}/include/" \;
           find libui-static -name '*.a' -exec cp {} "${sysroot}/lib/" \;
+          rm -rf ffmpeg-${FF_VER}-win64-dev ffmpeg-${FF_VER}-win64-shared libui-static ./*.zip SHA256SUMS
 
-      - name: Build
+      - name: Compilar
         run: |
-          make IS_RELEASE=1
-          make untrunc-gui LIBUI_STATIC=1 IS_RELEASE=1
+          make -j4 IS_RELEASE=1
+          make -j4 untrunc-gui LIBUI_STATIC=1 IS_RELEASE=1
 
-      - name: Unit tests
-        run: make test IS_RELEASE=1
-
-      - name: Bundle DLLs, strip and zip
+      - name: Tests
         run: |
-          dest="${{ matrix.untr_dest }}"
-          mkdir -p "$dest"
+          export UNTRUNC_NO_APRENDER=1
+          make -j4 untrunc-tests
+          ./untrunc-tests.exe
 
-          ntldd -R untrunc-gui.exe | awk '{print $1}' | sort -u | while read -r name; do
-            src="$MINGW_PREFIX/bin/$name"
-            [ -f "$src" ] || continue
-            cp -v "$src" "$dest/$(basename "$name" | tr '[:lower:]' '[:upper:]')"
-          done
+      - name: Empaquetar (empaquetar.sh)
+        run: ./empaquetar.sh windows --salida "$PWD/salida"
 
-          strip untrunc.exe     -o "$dest/untrunc.exe"
-          strip untrunc-gui.exe -o "$dest/untrunc-gui.exe"
-          zip -r "${dest}.zip" "$dest"
+      - name: Nombre con la versión y SHA256
+        id: zip
+        run: |
+          ver="${GITHUB_REF_NAME}"
+          case "$GITHUB_REF" in refs/tags/*) ;; *) ver="${GITHUB_SHA::7}" ;; esac
+          nombre="untrunc-mejorado-${ver}-windows-x64.zip"
+          mv salida/untrunc-mejorado-windows-x64.zip "salida/$nombre"
+          (cd salida && sha256sum "$nombre" > "$nombre.sha256")
+          cat "salida/$nombre.sha256"
+          echo "nombre=$nombre" >> "$GITHUB_OUTPUT"
 
-      - name: Upload build artifact
+      - name: Guardar el ZIP como artefacto
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.untr_dest }}
-          path: ${{ matrix.untr_dest }}.zip
+          name: ${{ steps.zip.outputs.nombre }}
+          path: |
+            salida/${{ steps.zip.outputs.nombre }}
+            salida/${{ steps.zip.outputs.nombre }}.sha256
 
   release:
-    needs: [build-windows]
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs: [windows]
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Collect all build artifacts
+      - name: Bajar el ZIP del paso anterior
         uses: actions/download-artifact@v4
         with:
           path: dist
+          merge-multiple: true
 
-      - name: Publish "latest" release
+      - name: Crear la release en borrador
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          assets=$(find dist -name '*.zip')
-          commit_date=$(git log -1 --format=%cI "$GITHUB_SHA")
-          notes="Automatic windows build by GitHub Actions.
+          tag="${GITHUB_REF_NAME}"
+          cat > notas.md <<EOF
+          ## Descarga (Windows 10/11, 64 bits)
 
-          **Head:** ${GITHUB_SHA}
-          **Date:** ${commit_date}"
+          1. Descarga **untrunc-mejorado-${tag}-windows-x64.zip** (abajo, en *Assets*).
+          2. Descomprímelo entero en cualquier carpeta.
+          3. Doble clic en **untrunc-gui.exe**. No hay que instalar nada: ya trae FFmpeg y Python.
 
-          if gh release view latest >/dev/null 2>&1; then
-            gh release edit latest \
-              --title "Latest" \
-              --notes "$notes"
-            git tag -f latest "$GITHUB_SHA"
-            git push -f origin refs/tags/latest
-          else
-            gh release create latest \
-              --title "Latest" \
-              --notes "$notes" \
-              --target "$GITHUB_SHA"
-          fi
+          Windows puede mostrar un aviso azul de SmartScreen porque el programa no está
+          firmado: pulsa *Más información* → *Ejecutar de todas formas*. Más detalles en
+          \`LEEME-Primeros-pasos.txt\`, dentro del ZIP.
 
-          gh release upload latest $assets --clobber
+          SHA256 del ZIP: ver el archivo \`.sha256\` adjunto.
+          EOF
+          gh release create "$tag" dist/*.zip dist/*.sha256 \
+            --draft --title "untrunc-mejorado ${tag}" \
+            --notes-file notas.md --generate-notes --verify-tag

@@ -1,0 +1,70 @@
+name: Mi vídeo no se repara / My video is not repaired
+description: El programa falla o el vídeo reparado sale mal. / The program fails or the repaired video is wrong.
+labels: ["reparación"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **No adjuntes tu vídeo ni lo subas a ningún sitio** (puede contener caras, voces o lugares).
+        Con los datos de abajo suele bastar. Si hace falta una muestra, te pediremos una
+        *plantilla* de tu cámara: solo la cabecera, unos KB, sin imagen ni sonido.
+
+        **Do not attach your video.** The information below is usually enough.
+  - type: input
+    id: version
+    attributes:
+      label: Versión del programa / Program version
+      description: Pestaña «Acerca de», o el nombre del ZIP (por ejemplo v1.0.0).
+    validations:
+      required: true
+  - type: input
+    id: camara
+    attributes:
+      label: Cámara o móvil y configuración / Camera or phone and settings
+      placeholder: "Por ejemplo: GoPro HERO9, 1080p 60 fps / Samsung A52, 4K 30 fps / DJI Mini 3"
+    validations:
+      required: true
+  - type: dropdown
+    id: como
+    attributes:
+      label: ¿Cómo se dañó? / How was it damaged?
+      options:
+        - Se apagó o se quedó sin batería grabando / Power loss while recording
+        - Se llenó la tarjeta / Card full
+        - Saqué la tarjeta o desconecté el cable / Card removed or cable unplugged
+        - Recuperado con un programa de recuperación de archivos / Recovered with a file-recovery tool
+        - No lo sé / Don't know
+        - Otro / Other
+    validations:
+      required: true
+  - type: dropdown
+    id: referencia
+    attributes:
+      label: ¿Usaste un vídeo de referencia? / Did you use a reference video?
+      options:
+        - Sí, de la misma cámara y configuración / Yes, same camera and settings
+        - Sí, pero de otra configuración o cámara / Yes, but different settings or camera
+        - No, sin referencia / No reference
+    validations:
+      required: true
+  - type: textarea
+    id: resultado
+    attributes:
+      label: Qué dijo el programa / What the program said
+      description: |
+        Copia el resumen que aparece al terminar (por ejemplo «Recuperado: 40 % del vídeo…»
+        y la línea de «Comprobación»). Revisa que no aparezcan nombres o rutas que no quieras
+        compartir.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: esperado
+    attributes:
+      label: Qué esperabas / What you expected
+      placeholder: "Por ejemplo: el vídeo dura 10 minutos y solo se recuperan 2."
+  - type: input
+    id: windows
+    attributes:
+      label: Sistema / OS
+      placeholder: "Windows 11 64 bits"

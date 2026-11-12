@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Fallo de seguridad / Security issue
+    url: https://github.com/agarciaaa/Recuperacion-de-video-/security/advisories/new
+    about: Infórmalo en privado, no en un issue público. / Report it privately, not in a public issue.

@@ -1,0 +1,20 @@
+name: Sugerencia o cámara nueva / Suggestion or new camera
+description: Una mejora, o una cámara/formato que todavía no se repara bien. / An improvement, or a camera/format not handled well yet.
+labels: ["mejora"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **No adjuntes vídeos.** Para una cámara nueva, lo más útil es una *plantilla*
+        (pestaña Asistente → «Guardar como plantilla de esta cámara» con un vídeo SANO corto):
+        guarda solo la cabecera, unos KB, sin imagen ni sonido, y sin fecha ni GPS.
+  - type: textarea
+    id: que
+    attributes:
+      label: ¿Qué propones? / What do you suggest?
+    validations:
+      required: true
+  - type: input
+    id: camara
+    attributes:
+      label: Cámara, móvil o formato (si aplica) / Camera, phone or format (if any)

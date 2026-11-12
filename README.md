@@ -1,163 +1,117 @@
-Untrunc
-=======
+# untrunc-mejorado
 
-> **Fork mejorado — Fase 1 (2026-11-07).** Este repositorio es un fork de
-> [anthwlock/untrunc](https://github.com/anthwlock/untrunc) (a su vez fork de
-> [ponchio/untrunc](https://github.com/ponchio/untrunc)), con licencia
-> **GNU GPL-2.0** (ver `COPYING`, intacto). Créditos a Federico Ponchio,
-> anthwlock y colaboradores. Cambios de la Fase 1 (sin IA, valor inmediato):
-> diagnóstico previo en español antes de reparar (`src/diagnoser.*`),
-> detección de archivos intercambiados, reintento automático con `-s -dyn`
-> cuando la reparación se corta antes del 90% (`src/repair_job.*`), lote
-> con salida a la carpeta `Reparados/` sin tocar el original, y GUI en
-> español con resumen de duración y % recuperado.
-> El núcleo C++ original (`mp4.cpp`, `codec.cpp`, `track.cpp`) se mantiene
-> intacto salvo el manejo de errores de `Mp4::parseOk()`.
->
-> **Fase 2 híbrida (2026-11-07).** Añade dos módulos de conexión a IA
-> (`src/ai/`), ambos con interfaz común y privacidad por diseño: **(A) IA
-> local** — offline, el vídeo nunca sale de la PC: detecta SPS/PPS/VPS
-> en el `mdat`, escanea frames por NAL y elige un perfil de cámara
-> (`profiles/profiles.json`: iPhone, Samsung, GoPro, DJI, Sony, Canon,
-> OBS y genéricos); **(B) IA externa** — opt-in, apagada por defecto,
-> solo recibe un paquete de diagnóstico en texto de menos de 50 KB,
-> nunca el vídeo ni fotogramas. El orquestador híbrido (`src/ai/hybrid.*`)
-> consulta primero la local y solo usa la externa si la confianza local
-> es baja y está activada. Nuevo modo sin referencia (`--sin-referencia`
-> con `--perfil`): construye una referencia sintética local con ffmpeg
-> y repara con el motor clásico. `--solo-diagnostico` imprime exactamente
-> qué texto se enviaría, sin enviar nada. La GUI añade Ajustes > IA (código en
-> `src/gui/gui.cpp`; sin compilar en Linux por falta de libui).
->
-> **LM Studio — Qwen local (2026-11-07).** Tercer proveedor de IA, en
-> `src/ai/lmstudio/`: se conecta a LM Studio en `http://localhost:1234`
-> (API compatible con OpenAI) para usar Qwen 3.5 / 3.6 descargados en la
-> PC. Qwen es un LLM de texto: solo recibe el paquete de diagnóstico en
-> texto, nunca el vídeo ni fotogramas; todo queda en localhost, sin
-> internet ni API key. El modelo es configurable (`--lmstudio-model`,
-> autodetección con `GET /v1/models`, `--lmstudio-listar`). El
-> orquestador híbrido consulta primero la IA local, después a Qwen si la
-> confianza es baja y Qwen está activado, y por último a la IA externa.
->
-> Restore a damaged (truncated) mp4, m4v, mov, 3gp video. Provided you have a similar not broken video. And some luck.
+**Recupera vídeos MP4 / MOV dañados o cortados** — los que no se abren porque
+la cámara o el móvil se apagaron grabando, la tarjeta se llenó o se sacó a
+mitad de la grabación. Gratis, de código abierto y **sin que tus vídeos salgan
+de tu PC**.
 
-You need:
+*English summary [below](#english).*
 
-* Another video file which isn't broken
-* ~~Basic ability to use a command line~~ ([GUI](#GUI) exists)
+[![tests](https://github.com/agarciaaa/Recuperacion-de-video-/actions/workflows/tests.yml/badge.svg)](https://github.com/agarciaaa/Recuperacion-de-video-/actions/workflows/tests.yml)
+[![release](https://github.com/agarciaaa/Recuperacion-de-video-/actions/workflows/release.yml/badge.svg)](https://github.com/agarciaaa/Recuperacion-de-video-/actions/workflows/release.yml)
+[![Licencia: GPL-2.0](https://img.shields.io/badge/licencia-GPL--2.0-blue.svg)](COPYING)
 
-## About this fork
-This fork improves the [original](https://github.com/ponchio/untrunc) in the following:
-* more than 10 times faster!
-* low memory usage, fixes [#30](https://github.com/ponchio/untrunc/issues/30#issuecomment-143744821)
-* easier to build + automated [windows builds](https://github.com/anthwlock/untrunc/releases/latest)
-* \>2GB file support
-* ability to skip over unknown bytes
-* generic support for all tracks with fixed-width chunks (e.g. twos/sowt)
-* advanced logging system
-* can stretch/shrink video to match audio duration
-* compatible with new versions of ffmpeg
-* handles invalid atom lengths
-* supports GoPro and Sony XAVC videos
-* recovers Canon HEVC recordings using embedded `repi` sample indexes
-* many bugs got fixed, actively maintained
+<p align="center"><img src="docs/img/asistente.png" alt="Pestaña Asistente de untrunc-gui: elegir vídeos dañados, referencia y reparar" width="560"></p>
 
-## Building
+## Descarga (Windows 10/11, 64 bits)
 
-Windows users can download the latest version [here](https://github.com/anthwlock/untrunc/releases/latest).\
-In certain cases a specific version of ffmpeg is needed. Untrunc works great with ffmpeg 3.3.9.\
-For FFmpeg versions > 8.1, struct definition mismatches can occur if upstream changes the internal `FFCodec` struct, potentially leading to undefined behavior (see details in [src/ff_internal.h](src/ff_internal.h)).
+1. Baja el ZIP de la última versión en **[Releases](https://github.com/agarciaaa/Recuperacion-de-video-/releases/latest)**.
+2. Descomprímelo entero en cualquier carpeta (o en un USB).
+3. Doble clic en **`untrunc-gui.exe`**.
 
-#### With system libraries
+No hay que instalar nada: el ZIP ya trae FFmpeg y Python. Como el programa no
+está firmado, Windows puede mostrar un aviso azul de SmartScreen: pulsa
+*Más información* → *Ejecutar de todas formas* (explicado en
+`LEEME-Primeros-pasos.txt`, dentro del ZIP).
 
-```shell
-sudo apt-get install libavformat-dev libavcodec-dev libavutil-dev
-# get the source code
-make
-sudo cp untrunc /usr/local/bin
-```
+## Cómo se usa
 
-#### With local libraries
+En la pestaña **Asistente**:
 
-Just use following commands, make will do the rest for you.
+1. **Elige el vídeo dañado** (o varios).
+2. **Elige un vídeo sano de referencia**: grabado con el mismo móvil o cámara
+   y la misma configuración (resolución, fps). Si no tienes ninguno, elige
+   *No tengo referencia: intentar sin ella*.
+3. **Pulsa «Reparar todo».** El resultado va a una carpeta `Reparados/` junto
+   al vídeo. **El original nunca se modifica.**
 
-```shell
-sudo apt-get install yasm wget
-make FF_VER=3.3.9
-sudo cp untrunc /usr/local/bin
-```
+Al terminar, el programa comprueba el vídeo reparado fotograma a fotograma y
+te dice si se ve bien de principio a fin o en qué segundos hay errores.
 
-#### GUI
+## Qué hace
 
-The GUI is optional. It is included in the automated [windows builds](https://github.com/anthwlock/untrunc/releases/latest).\
-You will need [libui](https://github.com/andlabs/libui). After that, just do
+| | |
+|---|---|
+| **Repara con referencia** | Toma la estructura de un vídeo sano de la misma cámara y la aplica al dañado. Es el método más fiable. |
+| **Repara sin referencia** | Usa una *plantilla* guardada de tu cámara (pesa unos KB) o genera una referencia sintética con los parámetros que detecta en el propio vídeo. |
+| **Rescata desde la tarjeta SD** | Busca los vídeos en una tarjeta, pendrive o imagen de disco **solo en lectura**, copia los completos y junta y repara los cortados o partidos en trozos. |
+| **Diagnóstico en español** | Antes de reparar, avisa si la referencia no sirve, si los archivos están intercambiados o si falta algo, y explica qué hacer. |
+| **Lote** | Repara muchos vídeos de una vez con la misma referencia. |
+| **Aprende de cada reparación** | Guarda solo números (nunca vídeo) y mejora su motor con las cámaras que vas reparando. |
+| **Otros formatos** | MKV, AVI, WMV, WebM, FLV, MPG y MTS: los convierte a MP4 y después los repara. |
 
-```shell
-make untrunc-gui
-```
+Interfaz y mensajes en español. También hay línea de comandos (`untrunc.exe`):
+ver la [guía completa](README-ESPANOL.md).
 
-#### CentOS 7
+## Privacidad
 
-```shell
-sudo yum -y install epel-release && sudo yum -y install git gcc-c++ yasm
-git clone --depth 5 https://github.com/anthwlock/untrunc && cd untrunc
-make FF_VER=3.3.9
-sudo cp untrunc /usr/local/bin
-```
+La reparación, la detección y el aprendizaje funcionan **sin internet**. Tus
+vídeos no se suben a ningún sitio ni se copian a las carpetas del programa.
+Las conexiones a IA opcionales (LM Studio con Qwen en tu propia PC, o una API
+externa) vienen apagadas y, si las activas, solo reciben un diagnóstico en
+texto de menos de 50 KB, nunca el vídeo.
 
-#### macOS with Homebrew
+## Lo que no puede hacer
 
-```
-brew install ffmpeg yasm
-CPPFLAGS="-I/opt/homebrew/include" LDFLAGS="-L/opt/homebrew/lib" make
-```
+Ningún programa puede recuperar lo que no está en el archivo: fotogramas
+borrados o sobrescritos, archivos de 0 bytes, o datos que la cámara nunca llegó
+a escribir. Tampoco «mejora la calidad»: el vídeo reparado no se re-codifica.
 
+## Más información
 
-## Docker container
+- [Guía completa en español](README-ESPANOL.md): línea de comandos, plantillas,
+  tarjeta SD, entrenamiento, requisitos y detalles técnicos.
+- [Compilar desde el código](README-ESPANOL.md#compilar-desde-el-código)
+  (Windows con MSYS2 y Linux).
+- [Cómo contribuir](CONTRIBUTING.md) y [cómo informar de un fallo de
+  seguridad](SECURITY.md).
 
-You can use the included Dockerfile to build and execute the package as a container.\
-The optional argument 'FF_VER' will be passed to `make`.
+## Créditos y licencia
 
-```shell
-# docker build --build-arg FF_VER=3.3.9 -t untrunc .
-docker build -t untrunc .
-docker image prune --filter label=stage=intermediate -f
+Este proyecto es un fork de **[anthwlock/untrunc](https://github.com/anthwlock/untrunc)**,
+que a su vez parte del Untrunc original de **[Federico Ponchio](https://github.com/ponchio/untrunc)**
+(CNR ISTI). Todo el mérito del motor de reparación es suyo y de sus
+colaboradores; su README original está en
+[docs/README-untrunc-original.md](docs/README-untrunc-original.md).
 
-docker run --rm -v ~/Videos/:/mnt untrunc /mnt/ok.mp4 /mnt/broken.mp4
-```
+Licencia **GNU GPL-2.0** (ver [COPYING](COPYING)). El ZIP de Windows incluye
+FFmpeg (GPL) y Python con numpy (licencias PSF y BSD).
 
-## Snapcraft
+---
 
-If you have `snap`, you can use `sudo snap install --edge untrunc-anthwlock`.
+## English
 
-[![untrunc-anthwlock](https://snapcraft.io//untrunc-anthwlock/badge.svg)](https://snapcraft.io/untrunc-anthwlock)
+**untrunc-mejorado** repairs damaged or truncated MP4/MOV videos (recordings
+whose final index was never written because the camera stopped, the card was
+full or was removed). It is a fork of
+[anthwlock/untrunc](https://github.com/anthwlock/untrunc) with a Spanish GUI
+and these additions:
 
-## Using
+- **No-reference repair** using saved per-camera header templates or a
+  synthetic reference built from parameters detected in the video itself.
+- **SD-card rescue**: scans a card, USB stick or disk image read-only, copies
+  complete videos and stitches and repairs truncated or fragmented ones.
+- **Pre-repair diagnosis**, batch repair, and a frame-by-frame check of the
+  result that reports exactly which seconds have errors.
+- **Local learning**: improves its resync model from each repair, storing only
+  numbers, never video.
+- **Portable Windows ZIP** with FFmpeg and Python bundled: unzip and run
+  `untrunc-gui.exe`, nothing to install.
 
-You need both the broken video and an example working video (ideally from the same camera, if not the chances to fix it are slim).
-
-Run this command in the folder where you have unzipped and compiled Untrunc but replace the `/path/to/...` bits with your 2 video files:
-
-```shell
-./untrunc /path/to/working-video.m4v /path/to/broken-video.m4v
-```
-
-Then it should churn away and hopefully produce a playable file called `broken-video_fixed.m4v`.
-
-That's it you're done!
-
-(Thanks to Tom Sparrow for providing the guide)
-
-
-### Help/Support
-
-#### Reporting issues
-Use the `-v` parameter for a more detailed output. Both the healthy and corrupt file might be needed to help you.
-
-#### Donation
-If this software helped you please consider donating [here](https://www.paypal.me/anthwlock)!\
-Donations will encourage me to keep working on this software, leading to more media being supported and better recovered files.
-
-You might also want to consider donating to **ponchio**, see his instructions [here](https://github.com/ponchio/untrunc#helpsupport).
-
-Thank you.
+Everything runs offline; videos never leave your computer. Download the
+Windows build from [Releases](https://github.com/agarciaaa/Recuperacion-de-video-/releases/latest).
+To build from source see
+[Compilar desde el código](README-ESPANOL.md#compilar-desde-el-código)
+(`make` on Linux with the system FFmpeg; MSYS2 on Windows). Bug reports and
+pull requests are welcome in English or Spanish — see
+[CONTRIBUTING.md](CONTRIBUTING.md). License: GPL-2.0.

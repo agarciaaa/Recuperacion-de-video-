@@ -363,9 +363,67 @@ reparado).
 
 ## Compilar desde el código
 
+Para usar el programa no hace falta compilar nada: baja el ZIP de
+[Releases](https://github.com/agarciaaa/Recuperacion-de-video-/releases/latest).
+Esto es para quien quiera modificar el código.
+
+### Windows (MSYS2)
+
+El ZIP oficial lo arma GitHub Actions con
+[`.github/workflows/release.yml`](.github/workflows/release.yml); estos son
+los mismos pasos a mano.
+
+1. Instala [MSYS2](https://www.msys2.org/) y abre la terminal **MSYS2
+   MINGW64**.
+2. Paquetes:
+   ```shell
+   pacman -S --needed git zip unzip make mingw-w64-x86_64-gcc \
+     mingw-w64-x86_64-ntldd mingw-w64-x86_64-python mingw-w64-x86_64-python-numpy
+   ```
+3. FFmpeg 3.3.4 (el motor se prueba con esta versión; las DLL y
+   `ffmpeg.exe` del ZIP salen de aquí) y libui alpha4.1. Descarga y
+   comprueba el SHA256 de estos tres archivos (los valores están en
+   `release.yml`):
+   - `https://web.archive.org/https://ffmpeg.zeranoe.com/builds/win64/dev/ffmpeg-3.3.4-win64-dev.zip`
+   - `https://web.archive.org/https://ffmpeg.zeranoe.com/builds/win64/shared/ffmpeg-3.3.4-win64-shared.zip`
+   - `https://github.com/andlabs/libui/releases/download/alpha4.1/libui-alpha4.1-windows-amd64-mingw-static.zip`
+
+   y cópialos en MINGW64:
+   ```shell
+   unzip -q ffmpeg-3.3.4-win64-dev.zip && unzip -q ffmpeg-3.3.4-win64-shared.zip
+   cp -r ffmpeg-3.3.4-win64-dev/include/* /mingw64/include/
+   cp -r ffmpeg-3.3.4-win64-dev/lib/*     /mingw64/lib/
+   cp -r ffmpeg-3.3.4-win64-shared/bin/*  /mingw64/bin/
+   unzip -q -d libui libui-alpha4.1-windows-amd64-mingw-static.zip
+   find libui -name '*.h' -exec cp {} /mingw64/include/ \;
+   find libui -name '*.a' -exec cp {} /mingw64/lib/ \;
+   ```
+4. Compila, prueba y empaqueta:
+   ```shell
+   make -j4 IS_RELEASE=1                              # untrunc.exe
+   make -j4 untrunc-gui LIBUI_STATIC=1 IS_RELEASE=1   # untrunc-gui.exe
+   make untrunc-tests && ./untrunc-tests.exe          # pruebas
+   ./empaquetar.sh windows                            # dist/untrunc-mejorado-windows-x64.zip
+   ```
+   `empaquetar.sh` copia los `.exe`, las DLL, `ffmpeg.exe`/`ffprobe.exe` y
+   Python con numpy, y comprueba que el paquete no lleve vídeos, datasets
+   ni rutas personales. El ZIP resultante funciona en cualquier Windows
+   10/11 de 64 bits sin instalar nada.
+
+Para abrir la GUI recién compilada fuera de MSYS2 con doble clic, usa la
+carpeta `dist/untrunc-mejorado-windows-x64/` (los `.exe` de la carpeta
+del código buscan las DLL de MSYS2).
+
+### Linux
+
 ```shell
-make -j4              # CLI: untrunc
-make untrunc-gui      # GUI: untrunc-gui.exe (necesita libui)
-make dist-linux       # ZIP de prueba para Linux (ver empaquetar.sh)
-make dist-windows     # ZIP para Windows (en MSYS2, tras compilar ambos .exe)
+sudo apt install build-essential libavformat-dev libavcodec-dev libavutil-dev
+make -j4                           # untrunc (CLI)
+make untrunc-tests && ./untrunc-tests
 ```
+
+Para el modo sin referencia y la conversión de formatos hace falta
+`ffmpeg`; para entrenar, `python3` y `numpy`
+(`sudo apt install ffmpeg python3-numpy`). La GUI necesita
+[libui](https://github.com/andlabs/libui) (`make untrunc-gui`).
+También hay un `Dockerfile` para el CLI.
