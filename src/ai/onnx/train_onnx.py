@@ -1151,10 +1151,13 @@ def entrenar(dataset_dir: Path, salida: Path, motor="auto"):
                           "  pip install torch --index-url https://download.pytorch.org/whl/cpu",
                           file=sys.stderr)
                 return 3
-            print(f"PyTorch no se pudo importar ({type(e).__name__}: {e}); "
-                  "se entrena con NumPy "
-                  "(mismo modelo, más lento). Para usar PyTorch:\n"
-                  "  pip install torch --index-url https://download.pytorch.org/whl/cpu")
+            # Sin PyTorch es lo normal (el ZIP trae Python + numpy):
+            # no se sugiere instalar nada. Solo se avisa si PyTorch
+            # está instalado pero roto.
+            if not isinstance(e, ImportError):
+                print(f"PyTorch está instalado pero no se pudo usar "
+                      f"({type(e).__name__}: {e}); se entrena con NumPy "
+                      "(mismo modelo, más lento).")
     if uso_torch:
         print("Motor: PyTorch (CPU).")
         # Reparaciones (2026-11-07, PC de Angel): PyTorch puede
@@ -1177,7 +1180,7 @@ def entrenar(dataset_dir: Path, salida: Path, motor="auto"):
             uso_torch = False
             pesos, acc = entrenar_numpy(Xtr, ytr, Xva, yva)
     else:
-        print("Motor: NumPy (respaldo, sin PyTorch).")
+        print("Motor: NumPy.")
         pesos, acc = entrenar_numpy(Xtr, ytr, Xva, yva)
     print(f"Precisión en validación (modelo): {acc:.3f}  |  heurística: {base:.3f}")
     # Puerta de calidad: si el modelo NO supera a la heurística, NO se
@@ -1203,9 +1206,15 @@ def entrenar(dataset_dir: Path, salida: Path, motor="auto"):
                         "precision_validacion": round(acc, 4),
                         "precision_baseline": round(base, 4),
                         "aceptado": True, "motor": "torch" if uso_torch else "numpy"})
-    print(f"Modelo aceptado y guardado en {salida} "
-          f"({info['tamano_bytes']} bytes .onnx, {PARAMETROS} parámetros).")
-    if not ok:
+    if ok:
+        print(f"Modelo aceptado y guardado en {salida} "
+              f"({info['tamano_bytes']} bytes .onnx, {PARAMETROS} parámetros).")
+    else:
+        print(f"Modelo aceptado y guardado en {salida} ({PARAMETROS} parámetros).")
+    # Sin el paquete `onnx` (opcional) no se exporta el .onnx, pero el
+    # programa usa pesos.json: no es un problema y no se avisa. Solo
+    # se avisa si `onnx` está instalado y la exportación falló.
+    if not ok and "no instalado" not in err:
         print(f"Aviso: el .onnx no se exportó ({err}); pesos.json y "
               f"model_info.json sí se guardaron y el modelo se puede usar en C++.")
     problemas = verificar_privacidad(dataset_dir) + verificar_privacidad(salida)

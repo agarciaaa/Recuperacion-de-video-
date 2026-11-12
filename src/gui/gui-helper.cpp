@@ -1,4 +1,5 @@
 #include "gui-helper.h"
+#include <string>
 
 using namespace std;
 
@@ -79,6 +80,46 @@ uiTab* GuiHelper::newTab(void) {
 	append(t, tab);
 //	GuiHelper::to_disable_.emplace_back(t);
 	return t;
+}
+
+// Caracteres (no bytes) de un texto UTF-8.
+static size_t utf8Len(const std::string& s) {
+	size_t n = 0;
+	for (unsigned char c : s)
+		if ((c & 0xC0) != 0x80) n++;
+	return n;
+}
+
+uiBox* GuiHelper::newTextLines(const char* text, size_t max_chars) {
+	auto b = uiNewVerticalBox();  // sin separación: se lee como un párrafo
+	std::string todo = text ? text : "";
+	size_t ini = 0;
+	while (ini <= todo.size()) {
+		size_t fin = todo.find('\n', ini);
+		if (fin == std::string::npos) fin = todo.size();
+		std::string parrafo = todo.substr(ini, fin - ini);
+		// Sangría inicial (espacios): se repite en cada línea.
+		size_t k = parrafo.find_first_not_of(' ');
+		std::string sangria = (k == std::string::npos) ? "" : parrafo.substr(0, k);
+		std::string resto = (k == std::string::npos) ? "" : parrafo.substr(k);
+		std::string linea;
+		size_t pos = 0;
+		while (pos <= resto.size()) {
+			size_t esp = resto.find(' ', pos);
+			if (esp == std::string::npos) esp = resto.size();
+			std::string palabra = resto.substr(pos, esp - pos);
+			if (!linea.empty() &&
+			    utf8Len(sangria + linea) + 1 + utf8Len(palabra) > max_chars) {
+				uiBoxAppend(b, uiControl(uiNewLabel((sangria + linea).c_str())), 0);
+				linea.clear();
+			}
+			if (!palabra.empty()) linea += (linea.empty() ? "" : " ") + palabra;
+			pos = esp + 1;
+		}
+		uiBoxAppend(b, uiControl(uiNewLabel((sangria + linea).c_str())), 0);
+		ini = fin + 1;
+	}
+	return b;
 }
 
 uiGroup* GuiHelper::newGroup(const char* text) {

@@ -35,6 +35,12 @@ public:
 	static uiGrid* newGrid(void);
 	static uiButton* newButton(const char* text);
 	static uiEntry* newEntry();
+	// Texto fijo en varias etiquetas, una por línea: corta en '\n' y
+	// parte las líneas largas por palabras (máx. max_chars caracteres).
+	// En Windows una uiLabel solo muestra su primera línea, pero la
+	// ventana se ensancha a lo que mediría el texto entero: un texto
+	// largo la hacía crecer hasta 2000 px.
+	static uiBox* newTextLines(const char* text, size_t max_chars = 100);
 	static void append(void* ptr, int type);
 private:
 	static std::vector<Thing> elements_;

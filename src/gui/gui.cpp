@@ -670,7 +670,7 @@ uiControl* Gui::aiTab() {
 	auto group_lm = newGroup("2 · LM Studio — Qwen local (avanzado, opcional)");
 	auto v_lm = newVerticalBox();
 	Ai::chk_lmstudio_ = uiNewCheckbox("Activar LM Studio (Qwen local)");
-	auto label_lm_info = uiNewLabel("Avanzado: necesita LM Studio instalado aparte con Qwen cargado. No hace falta para reparar.\nQwen solo razona sobre el diagnóstico en texto. El vídeo nunca sale de tu PC.");
+	auto label_lm_info = newTextLines("Avanzado: necesita LM Studio instalado aparte con Qwen cargado. No hace falta para reparar.\nQwen solo razona sobre el diagnóstico en texto. El vídeo nunca sale de tu PC.");
 	auto h_lm_endpoint = newHorizontalBox();
 	auto label_lm_endpoint = uiNewLabel("      Endpoint");
 	Ai::entry_lm_endpoint_ = uiNewEntry();
@@ -718,7 +718,7 @@ uiControl* Gui::aiTab() {
 	Ai::entry_ext_key_ = uiNewEntry();
 	uiBoxAppend(h_ext_key, uiControl(label_ext_key), 0);
 	uiBoxAppend(h_ext_key, uiControl(Ai::entry_ext_key_), 1);
-	auto label_ext_key_note = uiNewLabel("      La clave se escribe visible: libui no tiene campo de contraseña. No se guarda en el archivo ni aparece en los registros; solo vive en memoria en esta sesión. Ten cuidado al compartir pantalla.");
+	auto label_ext_key_note = newTextLines("      La clave se escribe visible: libui no tiene campo de contraseña. No se guarda en el archivo ni aparece en los registros; solo vive en memoria en esta sesión. Ten cuidado al compartir pantalla.");
 	auto h_ext_timeout = newHorizontalBox();
 	auto label_ext_timeout = uiNewLabel("      Tiempo de espera (segundos)");
 	Ai::spin_ext_timeout_ = uiNewSpinbox(5, 120);
@@ -736,7 +736,7 @@ uiControl* Gui::aiTab() {
 	uiGroupSetChild(group_ext, uiControl(v_ext));
 	uiBoxAppend(v_box, uiControl(group_ext), 0);
 
-	auto label_ai_note = uiNewLabel("La IA nunca genera vídeo: solo infiere estructura (códec, perfil, modo) y explica en español. Si todas están apagadas, se usa solo el modo clásico con referencia.");
+	auto label_ai_note = newTextLines("La IA nunca genera vídeo: solo infiere estructura (códec, perfil, modo) y explica en español. Si todas están apagadas, se usa solo el modo clásico con referencia.");
 	uiBoxAppend(v_box, uiControl(label_ai_note), 0);
 
 	// --- Valores iniciales: la configuracion efectiva (ai.conf y
@@ -933,12 +933,15 @@ void Gui::Train::updateModelLabel() {
 		}
 		return;
 	}
-	std::string s = "Modelo actual: " + info.nombre + " (" + donde + ")  ·  " +
+	// Una sola línea corta (~110 caracteres): una uiLabel larga
+	// ensanchaba la ventana a más de 1000 px. Sin el nombre interno
+	// ni la fecha, que no le dicen nada al usuario.
+	std::string s = "Modelo actual: " + donde + "  ·  " +
 	                std::to_string(info.tamano_bytes / 1024) + " KB  ·  " +
-	                std::to_string(info.ejemplos) + " ejemplos  ·  precisión en "
-	                "validación " + std::to_string((int)(info.precision_validacion * 100)) +
-	                "% (heurística: " + std::to_string((int)(info.precision_baseline * 100)) +
-	                "%)  ·  " + info.fecha;
+	                std::to_string(info.ejemplos) + " ejemplos  ·  acierto " +
+	                std::to_string((int)(info.precision_validacion * 100)) +
+	                " % (heurística " + std::to_string((int)(info.precision_baseline * 100)) +
+	                " %)";
 	if (!aviso.empty()) s += "\nAviso: " + aviso;
 	uiLabelSetText(label_modelo_, s.c_str());
 	if (chk_usar_) uiControlEnable(uiControl(chk_usar_));
@@ -1256,7 +1259,7 @@ uiControl* Gui::trainTab() {
 	// funciones libui nuevas.
 	auto label_train_info1 = uiNewLabel("«Crear dataset desde cero» BORRA la base guardada (pide confirmación).");
 	auto label_train_info2 = uiNewLabel("«Agregar más videos y re-entrenar» AÑADE los nuevos sin borrar nada.");
-	auto label_train_info3 = uiNewLabel("Entrenar necesita Python 3 + numpy; con PyTorch CPU es más rápido.");
+	auto label_train_info3 = uiNewLabel("Entrenar usa el Python + numpy que vienen incluidos (no hay que instalar nada).");
 	auto label_train_info4 = uiNewLabel("Si el modelo no supera a la heurística, NO reemplaza al activo.");
 	// Punto 2 (reparaciones 2026-11-07): elegir el motor. En la PC
 	// de Angel PyTorch está roto (incompatible con transformers) y
@@ -2150,7 +2153,7 @@ void Gui::Assistant::openRepaired(uiButton* button, void* data) {
 uiControl* Gui::assistantTab() {
 	auto v_box = newVerticalBox();
 
-	auto label_intro = uiNewLabel("Repara tus vídeos en 3 pasos. Nada sale de tu PC. El original nunca se modifica: las reparaciones van a la carpeta Reparados/.");
+	auto label_intro = newTextLines("Repara tus vídeos en 3 pasos. Nada sale de tu PC. El original nunca se modifica: las reparaciones van a la carpeta Reparados/.");
 	uiBoxAppend(v_box, uiControl(label_intro), 0);
 
 	// --- Paso 1: videos danados (lote) ---
@@ -2166,7 +2169,7 @@ uiControl* Gui::assistantTab() {
 	Assistant::list_danados_ = uiNewMultilineEntry();
 	uiMultilineEntrySetReadOnly(Assistant::list_danados_, 1);
 	Assistant::label_contadores_ = uiNewLabel("Vídeos dañados: 0");
-	auto label_p1 = uiNewLabel("Puedes agregar varios a la vez: en el diálogo elige uno o varios vídeos con Ctrl o Mayús. Se reparan todos con la misma referencia del Paso 2.");
+	auto label_p1 = newTextLines("Puedes agregar varios a la vez: en el diálogo elige uno o varios vídeos con Ctrl o Mayús. Se reparan todos con la misma referencia del Paso 2.");
 	uiBoxAppend(v1, uiControl(h_btns1), 0);
 	uiBoxAppend(v1, uiControl(Assistant::list_danados_), 1);
 	uiBoxAppend(v1, uiControl(Assistant::label_contadores_), 0);
@@ -2205,7 +2208,7 @@ uiControl* Gui::assistantTab() {
 	uiBoxAppend(h_tpl, uiControl(label_tpl), 0);
 	uiBoxAppend(h_tpl, uiControl(g_asist_nombre_plantilla), 1);
 	uiBoxAppend(v2, uiControl(h_tpl), 0);
-	auto label_tpl_info = uiNewLabel("Guarda solo la cabecera de la referencia (unos KB, sin imagen ni sonido). Así podrás reparar vídeos de esta cámara aunque ya no tengas un vídeo sano.");
+	auto label_tpl_info = newTextLines("Guarda solo la cabecera de la referencia (unos KB, sin imagen ni sonido). Así podrás reparar vídeos de esta cámara aunque ya no tengas un vídeo sano.");
 	uiBoxAppend(v2, uiControl(label_tpl_info), 0);
 	uiButtonOnClicked(g_asist_btn_plantilla, Gui::Assistant::guardarPlantilla, nullptr);
 	auto h_perfil = newHorizontalBox();
@@ -2271,7 +2274,7 @@ uiControl* Gui::assistantTab() {
 	uiBoxAppend(h_prev_btns, uiControl(Assistant::btn_preview_5s_), 0);
 	uiBoxAppend(h_prev_btns, uiControl(Assistant::btn_preview_foto_), 0);
 	uiBoxAppend(h_prev_btns, uiControl(Assistant::btn_preview_abrir_), 0);
-	Assistant::label_preview_ = uiNewLabel("La miniatura es el primer fotograma del vídeo reparado (se extrae con ffmpeg y se abre con tu visor de imágenes).");
+	Assistant::label_preview_ = uiNewLabel("La miniatura es el primer fotograma del vídeo reparado (se abre con tu visor de imágenes).");
 	uiBoxAppend(v3, uiControl(h_rep), 0);
 	uiBoxAppend(v3, uiControl(Assistant::progressbar_), 0);
 	uiBoxAppend(v3, uiControl(Assistant::text_informe_), 1);
@@ -2424,7 +2427,7 @@ void Gui::Tarjeta::resumenQueued(void* p) {
 
 uiControl* Gui::tarjetaTab() {
 	auto v_box = newVerticalBox();
-	uiBoxAppend(v_box, uiControl(uiNewLabel(
+	uiBoxAppend(v_box, uiControl(newTextLines(
 	    "Busca los vídeos directamente en una tarjeta SD, un pendrive o una imagen de disco "
 	    "(.img/.dd), SOLO EN LECTURA: la tarjeta nunca se modifica. Copia los vídeos completos y "
 	    "junta y repara los incompletos o partidos en trozos.\n"

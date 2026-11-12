@@ -11,3 +11,6 @@ build
 
 # DLL copiadas junto al exe para abrirlo con doble clic
 *.dll
+
+# Python incluido (lo copia el desarrollador desde dist/; no va al repo)
+/python/

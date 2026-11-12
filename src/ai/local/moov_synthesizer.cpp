@@ -64,10 +64,17 @@ SyntheticRef buildSyntheticReference(int width, int height, int fps,
 	std::string encoder = (codec == "hvc1") ? "libx265" : "libx264";
 	std::string prof = profile.empty() ? "high" : profile;
 	if (prof != "high" && prof != "main" && prof != "baseline") prof = "high";
-	std::string cmd = "ffmpeg -y -v error -f lavfi -i testsrc=size=" +
+	// Patrón EN MOVIMIENTO y con grano (como el sensor de una cámara).
+	// Con el patrón estático `testsrc` el codificador hacía fotogramas
+	// casi vacíos, muy distintos de los de una cámara real, y la
+	// reparación recuperaba 0-2 % (prueba 2026-11-11: vídeo 720p con
+	// grano cortado al 60 %); con testsrc2 + grano, 99 % sin errores,
+	// igual que con una referencia real.
+	std::string cmd = "ffmpeg -y -v error -f lavfi -i testsrc2=size=" +
 	                  std::to_string(width) + "x" + std::to_string(height) +
 	                  ":rate=" + std::to_string(fps) + ":duration=2"
 	                  " -f lavfi -i sine=frequency=440:duration=2"
+	                  " -vf noise=alls=12:allf=t"
 	                  " -c:v " + encoder + " -profile:v " + prof +
 	                  " -pix_fmt yuv420p -g " + std::to_string(fps) +
 	                  " -c:a aac -b:a 96k -ar 48000 -ac 2 -shortest " +
