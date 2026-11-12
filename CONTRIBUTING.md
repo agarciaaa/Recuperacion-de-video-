@@ -17,7 +17,10 @@ inglés** (*English is welcome too*).
 
 ## La regla de privacidad
 
-Este proyecto nunca guarda, copia ni sube vídeos de nadie. Por eso:
+Este proyecto nunca guarda, copia ni sube vídeos de nadie. Además, el
+repositorio es **público**: lo que se publica en él (código, issues,
+comentarios, adjuntos) cualquiera puede clonarlo o copiarlo en un fork, y
+aunque luego se borre, esas copias ya no se controlan. Por eso:
 
 - **No adjuntes vídeos** en issues ni pull requests, ni enlaces a vídeos
   personales.

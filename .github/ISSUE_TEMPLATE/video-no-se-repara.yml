@@ -6,6 +6,8 @@ body:
     attributes:
       value: |
         **No adjuntes tu vídeo ni lo subas a ningún sitio** (puede contener caras, voces o lugares).
+        Este repositorio es público: lo que escribas aquí cualquiera puede copiarlo, y aunque
+        lo borres después, esas copias ya no se pueden retirar.
         Con los datos de abajo suele bastar. Si hace falta una muestra, te pediremos una
         *plantilla* de tu cámara: solo la cabecera, unos KB, sin imagen ni sonido.
 

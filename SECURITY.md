@@ -1,5 +1,12 @@
 # Seguridad
 
+> **⚠ Este repositorio es público.** Todo lo que se publica aquí —código,
+> issues, comentarios y archivos adjuntos— cualquiera puede clonarlo o
+> copiarlo en un fork. Aunque después se borre, esas copias quedan fuera de
+> nuestro control y no se pueden retirar del todo. Por eso los fallos de
+> seguridad se informan **en privado** (ver abajo), y nunca se publican vídeos,
+> datos personales ni claves.
+
 ## Cómo informar de un fallo
 
 Si encuentras un fallo de seguridad (por ejemplo, un vídeo o una imagen de

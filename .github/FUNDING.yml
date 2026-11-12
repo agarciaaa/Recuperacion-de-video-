@@ -1,3 +1,5 @@
-# Botón «Sponsor» del repositorio. GitHub solo lo muestra para las
-# cuentas que tienen GitHub Sponsors activo (perfil aprobado).
+# Botón «Sponsor» del repositorio.
+# - github: GitHub solo lo muestra cuando el perfil de Sponsors está aprobado.
+# - ko_fi: para quien no tiene cuenta de GitHub (https://ko-fi.com/agarcia322).
 github: [agarciaaa]
+ko_fi: agarcia322

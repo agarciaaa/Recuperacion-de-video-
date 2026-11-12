@@ -76,6 +76,19 @@ a escribir. Tampoco «mejora la calidad»: el vídeo reparado no se re-codifica.
 - [Cómo contribuir](CONTRIBUTING.md) y [cómo informar de un fallo de
   seguridad](SECURITY.md).
 
+## Apoya el proyecto
+
+untrunc-mejorado es gratis y lo seguirá siendo. Si te recuperó un vídeo
+importante y quieres ayudar a que siga mejorando:
+
+- **[Ko-fi](https://ko-fi.com/agarcia322)**: sin necesidad de cuenta de
+  GitHub.
+- **GitHub Sponsors**: el botón **❤ Sponsor** de arriba, si tienes cuenta
+  de GitHub.
+
+También ayuda mucho contar qué cámara reparaste o compartir una plantilla
+(ver [Cómo contribuir](CONTRIBUTING.md)).
+
 ## Créditos y licencia
 
 Este proyecto es un fork de **[anthwlock/untrunc](https://github.com/anthwlock/untrunc)**,
@@ -115,3 +128,7 @@ To build from source see
 (`make` on Linux with the system FFmpeg; MSYS2 on Windows). Bug reports and
 pull requests are welcome in English or Spanish — see
 [CONTRIBUTING.md](CONTRIBUTING.md). License: GPL-2.0.
+
+If it saved a video for you, you can support the project on
+[Ko-fi](https://ko-fi.com/agarcia322) (no GitHub account needed) or with the
+**❤ Sponsor** button.
