@@ -14,7 +14,7 @@ jobs:
     # ~45 min; mejor fallar pronto y relanzar.
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Primero el espejo de Azure del runner; si no responde (pasó en
       # noviembre de 2026: "Ign: azure.archive.ubuntu.com" y apt colgado),

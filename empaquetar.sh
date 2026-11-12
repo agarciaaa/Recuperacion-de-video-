@@ -83,7 +83,7 @@ if [ "$PLATAFORMA" = windows ]; then
 	[ -f "$SOURCE_DIR/$EXE_GUI" ] || { echo "ERROR: falta $EXE_GUI. Compila antes: make untrunc-gui LIBUI_STATIC=1 IS_RELEASE=1 (necesita libui)" >&2; exit 1; }
 	command -v ntldd >/dev/null 2>&1 || { echo "ERROR: falta ntldd (en MSYS2: pacboy ntldd:p). Es quien lista las DLL que necesita el .exe." >&2; exit 1; }
 	: "${MINGW_PREFIX:=/mingw64}"
-	[ -d "$MINGW_PREFIX/bin" ] || { echo "ERROR: no existe \$MINGW_PREFIX/bin ($MINGW_PREFIX). Ejecuta el script en la terminal MINGW64 de MSYS2." >&2; exit 1; }
+	[ -d "$MINGW_PREFIX/bin" ] || { echo "ERROR: no existe \$MINGW_PREFIX/bin ($MINGW_PREFIX). Ejecuta el script en la terminal MINGW64 o UCRT64 de MSYS2." >&2; exit 1; }
 else
 	[ -f "$SOURCE_DIR/$EXE_CLI" ] || { echo "ERROR: falta $EXE_CLI. Compila antes: make -j4" >&2; exit 1; }
 fi
@@ -272,7 +272,7 @@ if [ "$PLATAFORMA" = windows ]; then
 			ver=$(pacman -Q "$p" | awk '{print $2}')
 			lic=$(LC_ALL=C pacman -Qi "$p" | sed -n 's/^Licenses *: *//p')
 			printf '   %-40s %-22s %s\n' "$p" "$ver" "$lic"
-			corto=${p#mingw-w64-x86_64-}
+			corto=${p#mingw-w64-x86_64-}; corto=${corto#mingw-w64-ucrt-x86_64-}
 			while read -r lf; do
 				[ -f "$lf" ] || continue
 				mkdir -p "$LIC/msys2/$corto"

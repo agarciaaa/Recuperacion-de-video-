@@ -36,12 +36,18 @@ jobs:
         shell: msys2 {0}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: MSYS2 (MINGW64) con gcc, ntldd, Python y numpy
         uses: msys2/setup-msys2@v2
         with:
+          # MSYS2 marca MINGW64 como obsoleto y recomienda UCRT64, pero la
+          # libui alpha4.1 precompilada (enlazada estática en untrunc-gui)
+          # está hecha para msvcrt: con UCRT64 el enlace falla por
+          # vsprintf_s / vswprintf_s (probado en noviembre de 2026). Para
+          # pasar a UCRT64 hay que compilar libui desde el código.
           msystem: MINGW64
+          suppress-deprecation-warnings: msystem-mingw64
           update: true
           cache: false
           # diffutils: `cmp`, con el que empaquetar.sh comprueba que
@@ -113,7 +119,7 @@ jobs:
           echo "nombre=$nombre" >> "$GITHUB_OUTPUT"
 
       - name: Guardar el ZIP como artefacto
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.zip.outputs.nombre }}
           path: |
@@ -127,10 +133,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Bajar el ZIP del paso anterior
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
