@@ -83,8 +83,8 @@ importante y quieres ayudar a que siga mejorando:
 
 - **[Ko-fi](https://ko-fi.com/agarcia322)**: sin necesidad de cuenta de
   GitHub.
-- **GitHub Sponsors**: el botón **❤ Sponsor** de arriba, si tienes cuenta
-  de GitHub.
+- **[GitHub Sponsors](https://github.com/sponsors/agarciaaa)**: si tienes
+  cuenta de GitHub (también con el botón **❤ Sponsor** de arriba).
 
 También ayuda mucho contar qué cámara reparaste o compartir una plantilla
 (ver [Cómo contribuir](CONTRIBUTING.md)).
@@ -132,5 +132,5 @@ pull requests are welcome in English or Spanish — see
 [CONTRIBUTING.md](CONTRIBUTING.md). License: GPL-2.0.
 
 If it saved a video for you, you can support the project on
-[Ko-fi](https://ko-fi.com/agarcia322) (no GitHub account needed) or with the
-**❤ Sponsor** button.
+[Ko-fi](https://ko-fi.com/agarcia322) (no GitHub account needed) or on
+[GitHub Sponsors](https://github.com/sponsors/agarciaaa).
