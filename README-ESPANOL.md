@@ -364,7 +364,7 @@ reparado).
 ## Compilar desde el código
 
 Para usar el programa no hace falta compilar nada: baja el ZIP de
-[Releases](https://github.com/agarciaaa/Recuperacion-de-video-/releases/latest).
+[Releases](https://github.com/agarciaaa/untrunc-mejorado/releases/latest).
 Esto es para quien quiera modificar el código.
 
 ### Windows (MSYS2)

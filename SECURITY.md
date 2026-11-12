@@ -20,7 +20,7 @@ si puedes, un archivo **sintético** que lo provoque (nunca un vídeo personal).
 ## Versiones con soporte
 
 Solo la última versión publicada en
-[Releases](https://github.com/agarciaaa/Recuperacion-de-video-/releases/latest)
+[Releases](https://github.com/agarciaaa/untrunc-mejorado/releases/latest)
 recibe arreglos.
 
 ## Qué se considera de seguridad

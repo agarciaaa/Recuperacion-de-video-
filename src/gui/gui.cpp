@@ -2586,7 +2586,7 @@ uiControl* Gui::aboutTab() {
 						   "https://github.com/agarciaaa\n"
 						   "\n"
 						   "Repositorio de esta versión mejorada:\n"
-						   "https://github.com/agarciaaa/Recuperacion-de-video-\n"
+						   "https://github.com/agarciaaa/untrunc-mejorado\n"
 						   "\n"
 						   "Report your issues here:\n"
 						   "https://github.com/anthwlock/untrunc"

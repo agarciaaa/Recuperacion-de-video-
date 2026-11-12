@@ -245,7 +245,7 @@ if [ "$PLATAFORMA" = windows ]; then
 		echo "=================================================="
 		echo
 		echo "untrunc-mejorado se distribuye bajo la GNU GPL versión 2 (archivo COPYING)."
-		echo "Su código fuente: https://github.com/agarciaaa/Recuperacion-de-video-"
+		echo "Su código fuente: https://github.com/agarciaaa/untrunc-mejorado"
 		echo
 		echo "Para que el programa funcione sin instalar nada, el ZIP trae además"
 		echo "programas de terceros, cada uno con su propia licencia (en esta carpeta):"

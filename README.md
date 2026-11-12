@@ -7,15 +7,15 @@ de tu PC**.
 
 *English summary [below](#english).*
 
-[![tests](https://github.com/agarciaaa/Recuperacion-de-video-/actions/workflows/tests.yml/badge.svg)](https://github.com/agarciaaa/Recuperacion-de-video-/actions/workflows/tests.yml)
-[![release](https://github.com/agarciaaa/Recuperacion-de-video-/actions/workflows/release.yml/badge.svg)](https://github.com/agarciaaa/Recuperacion-de-video-/actions/workflows/release.yml)
+[![tests](https://github.com/agarciaaa/untrunc-mejorado/actions/workflows/tests.yml/badge.svg)](https://github.com/agarciaaa/untrunc-mejorado/actions/workflows/tests.yml)
+[![release](https://github.com/agarciaaa/untrunc-mejorado/actions/workflows/release.yml/badge.svg)](https://github.com/agarciaaa/untrunc-mejorado/actions/workflows/release.yml)
 [![Licencia: GPL-2.0](https://img.shields.io/badge/licencia-GPL--2.0-blue.svg)](COPYING)
 
 <p align="center"><img src="docs/img/asistente.png" alt="Pestaña Asistente de untrunc-gui: elegir vídeos dañados, referencia y reparar" width="560"></p>
 
 ## Descarga (Windows 10/11, 64 bits)
 
-1. Baja el ZIP de la última versión en **[Releases](https://github.com/agarciaaa/Recuperacion-de-video-/releases/latest)**.
+1. Baja el ZIP de la última versión en **[Releases](https://github.com/agarciaaa/untrunc-mejorado/releases/latest)**.
 2. Descomprímelo entero en cualquier carpeta (o en un USB).
 3. Doble clic en **`untrunc-gui.exe`**.
 
@@ -124,7 +124,7 @@ and these additions:
   `untrunc-gui.exe`, nothing to install.
 
 Everything runs offline; videos never leave your computer. Download the
-Windows build from [Releases](https://github.com/agarciaaa/Recuperacion-de-video-/releases/latest).
+Windows build from [Releases](https://github.com/agarciaaa/untrunc-mejorado/releases/latest).
 To build from source see
 [Compilar desde el código](README-ESPANOL.md#compilar-desde-el-código)
 (`make` on Linux with the system FFmpeg; MSYS2 on Windows). Bug reports and
